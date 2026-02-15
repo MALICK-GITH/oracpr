@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Détails du match - Penalty Predictor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="match.css">
+</head>
+<body>
+  <div class="app system-app match-page">
+    <header class="system-header">
+      <a href="/" class="system-logo">
+        <span class="icon">⚽</span>
+        <span>Penalty Predictor</span>
+      </a>
+      <p class="subtitle">Système de prédictions FIFA & PES – Sports virtuels</p>
+      <nav class="system-nav-inner">
+        <a href="/" class="nav-link nav-link-back">← Accueil</a>
+        <span class="page-title">Détails du match</span>
+      </nav>
+    </header>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>Chargement...</p>
+    </div>
+
+    <div class="error" id="error" style="display:none">
+      <p>Match introuvable ou erreur de chargement.</p>
+      <a href="/">Retour à l'accueil</a>
+    </div>
+
+    <main id="matchContent" style="display:none">
+      <section class="match-info-card">
+        <div class="match-teams">
+          <div class="team-box team-box-left">
+            <span class="team-name" id="team1">-</span>
+          </div>
+          <div class="score-vs-wrapper">
+            <div class="score-display" id="scoreDisplay">
+              <span class="score-num" id="score1">0</span>
+              <span class="score-sep">:</span>
+              <span class="score-num" id="score2">0</span>
+            </div>
+            <span class="vs-big">VS</span>
+          </div>
+          <div class="team-box team-box-right">
+            <span class="team-name" id="team2">-</span>
+          </div>
+        </div>
+        <div class="match-meta">
+          <span id="league" class="league-badge">-</span>
+          <span id="sport" class="sport-badge fifa">FIFA</span>
+        </div>
+        <div class="status-bar-detail" id="statusBar"></div>
+      </section>
+
+      <section class="charts-section">
+        <h2>Visualisations</h2>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <h3>Probabilités 1X2</h3>
+            <div class="prob-chart" id="probChart"></div>
+          </div>
+          <div class="chart-card">
+            <h3>État du match</h3>
+            <div class="match-state-visual" id="matchStateVisual"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="odds-detail">
+        <h2>📊 Cotes & tendances</h2>
+        <div class="odds-grid" id="oddsGrid"></div>
+        <div class="trends-mini" id="trendsMini"></div>
+      </section>
+
+      <section class="alternative-predictions-section">
+        <h2>🎲 Prédictions Paris Alternatifs uniquement</h2>
+        <p class="alternative-desc">Système dédié : totaux, handicaps, pair/impair, etc. Aucun 1X2.</p>
+        <div class="alternative-decision" id="alternativeDecision"></div>
+        <div class="alternative-options" id="alternativeOptions"></div>
+        <div class="alternative-all-bets" id="alternativeAllBets"></div>
+      </section>
+
+      <section class="ultimate-bet-section">
+        <h2>Paris ultime (cote ≥ 2.0)</h2>
+        <p class="ultimate-desc">Choisissez votre pari et misez. Seules les options avec cote ≥ 2.0 sont affichées.</p>
+        <div class="ultimate-options" id="ultimateOptions"></div>
+        <div class="selected-bet" id="selectedBet" style="display:none">
+          <p><strong>Votre pari :</strong> <span id="selectedLabel">-</span></p>
+          <p><strong>Cote :</strong> <span id="selectedOdds">-</span></p>
+        </div>
+      </section>
+    <footer class="system-footer">
+      <p>Données issues de l'API 1xbet • Prédictions indicatives uniquement</p>
+      <nav class="footer-nav">
+        <a href="/">Accueil</a>
+        <span class="footer-sep">·</span>
+        <a href="/">Liste des matches</a>
+      </nav>
+    </footer>
+  </div>
+
+  <script src="translations.js"></script>
+  <script src="match.js"></script>
+</body>
+</html>

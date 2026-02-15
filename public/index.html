@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Penalty Predictor - FIFA & PES</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app system-app">
+    <header class="system-header">
+      <a href="/" class="system-logo">
+        <span class="icon">⚽</span>
+        <span>Penalty Predictor</span>
+      </a>
+      <p class="subtitle">Système de prédictions FIFA & PES – Sports virtuels</p>
+      <nav class="tabs">
+        <button class="tab active" data-tab="all">Tous</button>
+        <button class="tab" data-tab="fifa">FIFA Penalty</button>
+        <button class="tab" data-tab="pes">PES Penalty</button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p id="loadingText">Chargement des matches...</p>
+      </div>
+
+      <div class="error" id="error" style="display:none">
+        <p id="errorText">Erreur de chargement. Vérifiez la connexion et réessayez.</p>
+        <button onclick="loadData()" id="retryBtn">Réessayer</button>
+      </div>
+
+      <section class="matches" id="matches"></section>
+
+      <p class="fallback-info" id="fallbackInfo" style="display:none"></p>
+    </main>
+
+    <footer class="system-footer">
+      <p id="footerDisclaimer">Données issues de l'API 1xbet • Prédictions indicatives uniquement</p>
+      <nav class="footer-nav">
+        <a href="/" id="footerHome">Accueil</a>
+        <span class="footer-sep">·</span>
+        <a href="/" id="footerList">Liste des matches</a>
+      </nav>
+    </footer>
+  </div>
+
+  <script src="translations.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
