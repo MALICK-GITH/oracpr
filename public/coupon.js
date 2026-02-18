@@ -4,6 +4,7 @@ function formatOdd(value) {
 
 let lastCouponData = null;
 const COUPON_HISTORY_KEY = "fc25_coupon_history_v1";
+const TICKET_SHIELD_DRIFT = 6;
 
 function toNumber(v, fallback = 0) {
   const n = Number(v);
@@ -196,9 +197,10 @@ function setResultHtml(html) {
 
 function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
-  if (!btn) return;
+  const stickyBtn = document.getElementById("sendTelegramBtnSticky");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
-  btn.disabled = !enabled;
+  if (btn) btn.disabled = !enabled;
+  if (stickyBtn) stickyBtn.disabled = !enabled;
 }
 
 async function loadLeagues() {
@@ -255,6 +257,7 @@ function renderCoupon(data) {
       <span>Cote combinee: ${formatOdd(data.summary?.combinedOdd)}</span>
       <span>Confiance moyenne: ${data.summary?.averageConfidence ?? 0}%</span>
       <span>Profil: ${data.riskProfile || "balanced"}</span>
+      <span>Ticket Shield: ACTIF</span>
     </div>
     <ol>${items}</ol>
     <p class="warning">${data.warning || ""}</p>
@@ -268,6 +271,72 @@ function renderCoupon(data) {
     at: new Date().toISOString(),
     note: `${data.summary?.totalSelections ?? 0} selections | cote ${formatOdd(data.summary?.combinedOdd)} | profil ${data.riskProfile || "balanced"}`,
   });
+}
+
+async function fetchValidationReport(payload) {
+  let data;
+  try {
+    const res = await fetch("/api/coupon/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    data = await readJsonSafe(res);
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || data.message || "Erreur validation ticket");
+    }
+  } catch {
+    data = await validateTicketFallback(payload);
+  }
+  return data;
+}
+
+function createCouponSummary(coupon = []) {
+  const totalSelections = coupon.length;
+  const combinedOdd = totalSelections ? Number(coupon.reduce((acc, x) => acc * Number(x.cote || 1), 1).toFixed(3)) : null;
+  const averageConfidence = totalSelections
+    ? Number((coupon.reduce((acc, x) => acc + Number(x.confiance || 0), 0) / totalSelections).toFixed(1))
+    : 0;
+  return { totalSelections, combinedOdd, averageConfidence };
+}
+
+function applyAdaptiveParlay(report) {
+  const original = Array.isArray(lastCouponData?.coupon) ? lastCouponData.coupon : [];
+  const byMatch = new Map(original.map((x) => [String(x.matchId), x]));
+  const next = [];
+  const blocked = [];
+  let replaced = 0;
+
+  for (const row of report.validatedSelections || []) {
+    const base = byMatch.get(String(row.matchId));
+    if (!base) continue;
+    const reasons = Array.isArray(row.reasonCodes) ? row.reasonCodes : [];
+    const hardBlock = reasons.includes("MATCH_ALREADY_STARTED");
+    if (hardBlock) {
+      blocked.push(`${row.teams || row.matchId} (deja commence)`);
+      continue;
+    }
+
+    if (row.status === "ok") {
+      next.push(base);
+      continue;
+    }
+
+    if (row.recommendation?.pari && Number.isFinite(Number(row.recommendation?.odd))) {
+      replaced += 1;
+      next.push({
+        ...base,
+        pari: row.recommendation.pari,
+        cote: Number(row.recommendation.odd),
+        confiance: Number(row.recommendation.confidence || row.confidence || base.confiance || 50),
+      });
+      continue;
+    }
+
+    blocked.push(`${row.teams || row.matchId} (pas de remplacement)`);
+  }
+
+  return { coupon: next, replaced, blocked };
 }
 
 function renderValidation(report) {
@@ -326,10 +395,45 @@ async function sendCouponToTelegram() {
   if (panel) panel.innerHTML = "<p>Envoi Telegram en cours...</p>";
 
   try {
+    const shieldPayload = {
+      driftThresholdPercent: TICKET_SHIELD_DRIFT,
+      selections: lastCouponData.coupon.map((x) => ({
+        matchId: x.matchId,
+        pari: x.pari,
+        cote: x.cote,
+      })),
+    };
+    const shieldReport = await fetchValidationReport(shieldPayload);
+    const adapted = applyAdaptiveParlay(shieldReport);
+    if (adapted.blocked.length > 0) {
+      const blockList = adapted.blocked.map((x) => `<li>${x}</li>`).join("");
+      panel.innerHTML = `
+        <h3>Ticket Shield IA</h3>
+        <p class="ticket-status ticket-fix">ENVOI BLOQUE</p>
+        <p>Ces selections sont invalides pour envoi:</p>
+        <ul class="validation-list">${blockList}</ul>
+      `;
+      return;
+    }
+
+    if (adapted.replaced > 0) {
+      lastCouponData = {
+        ...lastCouponData,
+        coupon: adapted.coupon,
+        summary: createCouponSummary(adapted.coupon),
+        warning: `Parlay adaptatif: ${adapted.replaced} selection(s) remplacee(s) par Ticket Shield.`,
+      };
+      renderCoupon(lastCouponData);
+    }
+
     const payload = {
       coupon: lastCouponData.coupon,
       summary: lastCouponData.summary || {},
       riskProfile: lastCouponData.riskProfile || "balanced",
+      ticketShield: {
+        driftThresholdPercent: TICKET_SHIELD_DRIFT,
+        replacedSelections: adapted.replaced,
+      },
     };
     const res = await fetch("/api/coupon/send-telegram", {
       method: "POST",
@@ -349,7 +453,8 @@ async function sendCouponToTelegram() {
       panel.innerHTML = `
         <h3>Envoi Telegram</h3>
         <p class="ticket-status ticket-ok">ENVOI REUSSI</p>
-        <p>${data.message || "Coupon envoye dans ton canal Telegram."}</p>
+        <p>${data.message || "Coupon envoye sur Telegram."}</p>
+        <p>Ticket Shield IA: drift ${TICKET_SHIELD_DRIFT}% | Remplacements: ${adapted.replaced}</p>
       `;
     }
     addHistoryEntry({
@@ -493,7 +598,7 @@ async function validateTicket() {
 
   try {
     const payload = {
-      driftThresholdPercent: 6,
+      driftThresholdPercent: TICKET_SHIELD_DRIFT,
       selections: lastCouponData.coupon.map((x) => ({
         matchId: x.matchId,
         pari: x.pari,
@@ -501,20 +606,7 @@ async function validateTicket() {
       })),
     };
 
-    let data;
-    try {
-      const res = await fetch("/api/coupon/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      data = await readJsonSafe(res);
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || data.message || "Erreur validation ticket");
-      }
-    } catch {
-      data = await validateTicketFallback(payload);
-    }
+    const data = await fetchValidationReport(payload);
     renderValidation(data);
   } catch (error) {
     panel.innerHTML = `<p>Erreur validation: ${error.message}</p>`;
@@ -524,6 +616,9 @@ async function validateTicket() {
 const generateBtn = document.getElementById("generateBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
+const generateBtnSticky = document.getElementById("generateBtnSticky");
+const validateBtnSticky = document.getElementById("validateBtnSticky");
+const sendTelegramBtnSticky = document.getElementById("sendTelegramBtnSticky");
 
 if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
 if (validateBtn) {
@@ -539,6 +634,15 @@ if (sendTelegramBtn) {
     e.preventDefault();
     sendCouponToTelegram();
   });
+}
+if (generateBtnSticky) {
+  generateBtnSticky.addEventListener("click", generateCoupon);
+}
+if (validateBtnSticky) {
+  validateBtnSticky.addEventListener("click", validateTicket);
+}
+if (sendTelegramBtnSticky) {
+  sendTelegramBtnSticky.addEventListener("click", sendCouponToTelegram);
 }
 
 loadLeagues();

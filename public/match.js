@@ -10,6 +10,7 @@ let countdown = AUTO_REFRESH_SECONDS;
 let previousOdds = null;
 let loading = false;
 const IS_MOBILE = window.matchMedia("(max-width: 760px)").matches;
+let lastDetailsData = null;
 
 function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
@@ -39,6 +40,12 @@ function clamp(value, min, max) {
 function updateRefreshBadge() {
   const el = document.getElementById("refreshBadge");
   if (el) el.textContent = `Auto-refresh dans ${countdown}s`;
+}
+
+function setMatchTelegramButtonEnabled(enabled) {
+  const btn = document.getElementById("sendMatchTelegramBtn");
+  if (!btn) return;
+  btn.disabled = !enabled;
 }
 
 function startAutoRefresh() {
@@ -174,6 +181,99 @@ function renderMarkets(markets) {
     .map((m) => `<li>${m.nom} | cote ${formatOdd(m.cote)} | type ${m.type}</li>`)
     .join("");
   el.innerHTML = `<h2>Marches Analyses</h2><ul>${li || "<li>Aucun marche</li>"}</ul>`;
+}
+
+function pickSingleSelectionFromDetails(data) {
+  const match = data?.match || {};
+  const prediction = data?.prediction || {};
+  const bettingMarkets = Array.isArray(data?.bettingMarkets) ? data.bettingMarkets : [];
+  const master = prediction?.maitre?.decision_finale || {};
+  const marketByName = new Map(bettingMarkets.map((m) => [String(m.nom), m]));
+
+  let pari = String(master.pari_choisi || "").trim();
+  let cote = pari ? Number(marketByName.get(pari)?.cote) : NaN;
+  let confiance = Number(master.confiance_numerique || 0);
+
+  if (!pari || !Number.isFinite(cote)) {
+    const top = prediction?.analyse_avancee?.top_3_recommandations || [];
+    const best = top.find((x) => Number.isFinite(Number(x?.cote)));
+    if (best) {
+      pari = String(best.pari || "");
+      cote = Number(best.cote);
+      confiance = Number(best.score_composite || confiance || 55);
+    }
+  }
+
+  if (!pari || !Number.isFinite(cote)) {
+    const fallback = bettingMarkets.find((m) => Number.isFinite(Number(m?.cote)));
+    if (fallback) {
+      pari = String(fallback.nom || "");
+      cote = Number(fallback.cote);
+      confiance = Math.max(confiance, 50);
+    }
+  }
+
+  if (!pari || !Number.isFinite(cote)) return null;
+
+  return {
+    matchId: match.id,
+    teamHome: match.teamHome,
+    teamAway: match.teamAway,
+    league: match.league,
+    pari,
+    cote,
+    confiance: Number.isFinite(confiance) ? Number(confiance.toFixed(1)) : 55,
+  };
+}
+
+function couponSummary(coupon) {
+  const totalSelections = coupon.length;
+  const combinedOdd = totalSelections ? Number(coupon.reduce((acc, x) => acc * Number(x.cote || 1), 1).toFixed(3)) : null;
+  const averageConfidence = totalSelections
+    ? Number((coupon.reduce((acc, x) => acc + Number(x.confiance || 0), 0) / totalSelections).toFixed(1))
+    : 0;
+  return { totalSelections, combinedOdd, averageConfidence };
+}
+
+async function sendCurrentMatchToTelegram() {
+  const btn = document.getElementById("sendMatchTelegramBtn");
+  if (!lastDetailsData) return;
+
+  const selection = pickSingleSelectionFromDetails(lastDetailsData);
+  if (!selection) {
+    document.getElementById("sub").textContent = "Selection Telegram impossible pour ce match.";
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Envoi...";
+  }
+
+  try {
+    const payload = {
+      coupon: [selection],
+      summary: couponSummary([selection]),
+      riskProfile: "single-match",
+    };
+    const res = await fetch("/api/coupon/send-telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || data?.message || "Erreur Telegram");
+    }
+    document.getElementById("sub").textContent = "Ticket 1 match envoye sur Telegram.";
+  } catch (error) {
+    document.getElementById("sub").textContent = `Erreur Telegram: ${error.message}`;
+  } finally {
+    if (btn) {
+      btn.textContent = "Envoyer Telegram";
+      setMatchTelegramButtonEnabled(Boolean(lastDetailsData));
+    }
+  }
 }
 
 function computeMatchModel(data) {
@@ -416,6 +516,8 @@ async function loadData(trigger = "manual") {
     if (!res.ok || !data.success) throw new Error(data.error || data.message || "Erreur API");
 
     const match = data.match || {};
+    lastDetailsData = data;
+    setMatchTelegramButtonEnabled(true);
     document.getElementById("title").textContent = `${match.teamHome} vs ${match.teamAway}`;
     document.getElementById("sub").textContent = `${match.league} | marche(s): ${data.bettingMarkets?.length || 0}${trigger === "auto" ? " | mise a jour auto" : ""}`;
 
@@ -430,6 +532,8 @@ async function loadData(trigger = "manual") {
     renderDriftAlert(drifts);
     previousOdds = currentOdds;
   } catch (error) {
+    lastDetailsData = null;
+    setMatchTelegramButtonEnabled(false);
     document.getElementById("title").textContent = "Erreur de chargement";
     document.getElementById("sub").textContent = error.message;
     console.error("Erreur match.js:", error);
@@ -441,12 +545,16 @@ async function loadData(trigger = "manual") {
 function init() {
   currentMatchId = qs("id");
   if (!currentMatchId) {
+    setMatchTelegramButtonEnabled(false);
     document.getElementById("title").textContent = "Match non specifie";
     document.getElementById("sub").textContent = "Ajoute ?id=...";
     return;
   }
   countdown = AUTO_REFRESH_SECONDS;
   updateRefreshBadge();
+  setMatchTelegramButtonEnabled(false);
+  const sendBtn = document.getElementById("sendMatchTelegramBtn");
+  if (sendBtn) sendBtn.addEventListener("click", sendCurrentMatchToTelegram);
   loadData("manual");
   startAutoRefresh();
 }

@@ -95,6 +95,8 @@ h1 {
   margin-top: 0.64rem;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.55rem;
 }
 
 .refresh-badge {
@@ -104,6 +106,22 @@ h1 {
   border-radius: 999px;
   padding: 0.31rem 0.62rem;
   font-size: 0.81rem;
+}
+
+.telegram-match-btn {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 0.36rem 0.72rem;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  color: #051120;
+  background: linear-gradient(90deg, #ffd27a, #ffe8b2);
+  cursor: pointer;
+}
+
+.telegram-match-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .panel {

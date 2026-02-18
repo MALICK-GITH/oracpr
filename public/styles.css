@@ -180,6 +180,87 @@ footer {
   margin-bottom: 0.95rem;
 }
 
+.league-heatmap {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(160deg, rgba(12, 21, 40, 0.95), rgba(8, 14, 30, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  padding: 0.78rem;
+  margin-bottom: 0.9rem;
+}
+
+.heatmap-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.64rem;
+}
+
+.heatmap-head h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-family: "Chakra Petch", sans-serif;
+  color: #dff8ff;
+}
+
+.heatmap-head span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.62rem;
+}
+
+.heat-row {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.55rem;
+  background: rgba(10, 18, 34, 0.88);
+}
+
+.heat-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.heat-line strong {
+  font-size: 0.8rem;
+  color: #ebf6ff;
+}
+
+.heat-line span {
+  color: #8effb0;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+}
+
+.heat-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.heat-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff7d6e, #ffd166 55%, #42f56c);
+}
+
+.heat-row small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .stat-box {
   border: 1px solid var(--line);
   border-radius: 15px;
@@ -281,6 +362,22 @@ footer {
   padding: 0.72rem 1rem;
   border-bottom: 1px solid var(--line);
   background: linear-gradient(90deg, rgba(36, 215, 255, 0.1), rgba(66, 245, 108, 0.08));
+}
+
+.league-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.reliability-pill {
+  background: rgba(36, 215, 255, 0.15);
+  border: 1px solid rgba(36, 215, 255, 0.45);
+  color: #b9f4ff;
+  border-radius: 999px;
+  padding: 0.22rem 0.58rem;
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
 .league {

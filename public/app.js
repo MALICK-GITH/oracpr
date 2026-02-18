@@ -75,6 +75,40 @@ function createStat(title, value) {
   return el;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeReliabilityScore(match) {
+  const h = Number(match?.odds1x2?.home);
+  const d = Number(match?.odds1x2?.draw);
+  const a = Number(match?.odds1x2?.away);
+  const hasOdds = [h, d, a].every((x) => Number.isFinite(x) && x > 1);
+
+  let marketClarity = 45;
+  if (hasOdds) {
+    const ph = 1 / h;
+    const pd = 1 / d;
+    const pa = 1 / a;
+    const total = ph + pd + pa;
+    const maxProb = Math.max(ph, pd, pa) / total;
+    marketClarity = maxProb * 100;
+  }
+
+  const trendFlags = ["home", "draw", "away"].filter((k) => match?.trend?.[k]).length;
+  const volatilityPenalty = trendFlags * 7;
+  const mode = classifyMatch(match);
+  const statusBonus = mode === "upcoming" ? 8 : mode === "live" ? -6 : -14;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const start = Number(match?.startTimeUnix || 0);
+  const minsToStart = start > nowSec ? (start - nowSec) / 60 : -1;
+  const timingBonus = minsToStart > 0 && minsToStart <= 45 ? 8 : minsToStart > 45 ? 4 : 0;
+
+  const raw = 28 + marketClarity * 0.55 + timingBonus + statusBonus - volatilityPenalty;
+  return Math.round(clamp(raw, 10, 99));
+}
+
 function uniqueLeagues(matches) {
   const map = new Map();
   matches.forEach((match) => {
@@ -156,7 +190,10 @@ function createMatchCard(match, index) {
   card.innerHTML = `
     <div class="league-row">
       <p class="league">${match.league || "Ligue virtuelle"}</p>
-      <span class="status-pill">${status}</span>
+      <div class="league-badges">
+        <span class="reliability-pill">Fiabilite ${match.reliabilityScore ?? 0}%</span>
+        <span class="status-pill">${status}</span>
+      </div>
     </div>
     <div class="scoreboard">
       <div class="team-col">
@@ -255,19 +292,79 @@ function enrichWithTrend(matches) {
       );
     }
 
+    const trend = {
+      home: diffTrend(prev.home, next.home),
+      draw: diffTrend(prev.draw, next.draw),
+      away: diffTrend(prev.away, next.away),
+    };
     return {
       ...match,
-      trend: {
-        home: diffTrend(prev.home, next.home),
-        draw: diffTrend(prev.draw, next.draw),
-        away: diffTrend(prev.away, next.away),
-      },
+      trend,
+      reliabilityScore: computeReliabilityScore({ ...match, trend }),
     };
   });
   if (alerts.length) {
     setTimeout(() => alerts.forEach((msg) => pushOddAlert(msg)), 120);
   }
   return enriched;
+}
+
+function renderLeagueHeatmap(matches) {
+  const wrap = document.getElementById("leagueHeatmap");
+  if (!wrap) return;
+  const upcoming = (matches || []).filter((m) => classifyMatch(m) === "upcoming");
+  const byLeague = new Map();
+
+  upcoming.forEach((m) => {
+    const key = String(m.league || "Ligue inconnue");
+    const item = byLeague.get(key) || { league: key, count: 0, reliabilitySum: 0, volatility: 0 };
+    item.count += 1;
+    item.reliabilitySum += Number(m.reliabilityScore || 0);
+    item.volatility += ["home", "draw", "away"].filter((k) => m?.trend?.[k]).length;
+    byLeague.set(key, item);
+  });
+
+  const rows = Array.from(byLeague.values())
+    .map((x) => {
+      const avgReliability = x.count ? x.reliabilitySum / x.count : 0;
+      const volAvg = x.count ? x.volatility / x.count : 0;
+      const stability = clamp(Math.round(avgReliability - volAvg * 8 + Math.log2(x.count + 1) * 7), 5, 99);
+      return {
+        ...x,
+        avgReliability: Math.round(avgReliability),
+        stability,
+      };
+    })
+    .sort((a, b) => b.stability - a.stability)
+    .slice(0, 8);
+
+  if (!rows.length) {
+    wrap.innerHTML = "";
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="heatmap-head">
+      <h2>Heatmap Ligues Temps Reel</h2>
+      <span>Tri stabilite IA</span>
+    </div>
+    <div class="heatmap-grid">
+      ${rows
+        .map(
+          (r) => `
+          <article class="heat-row">
+            <div class="heat-line">
+              <strong>${escapeHtml(r.league)}</strong>
+              <span>Stabilite ${r.stability}%</span>
+            </div>
+            <div class="heat-bar"><i style="width:${r.stability}%"></i></div>
+            <small>${r.count} matchs a venir | Fiabilite moyenne ${r.avgReliability}%</small>
+          </article>
+        `
+        )
+        .join("")}
+    </div>
+  `;
 }
 
 function renderMatches() {
@@ -333,6 +430,7 @@ async function loadMatches() {
     statsWrap.appendChild(createStat("Ligues", uniqueLeagues(allMatches).length));
 
     populateLeagueFilter(allMatches);
+    renderLeagueHeatmap(allMatches);
     renderMatches();
     updatedAt.textContent = `Derniere mise a jour: ${new Date(data.fetchedAt).toLocaleString("fr-FR")}`;
   } catch (error) {
