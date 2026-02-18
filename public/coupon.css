@@ -107,6 +107,32 @@ h1 {
   padding: 0.55rem 0.8rem;
   align-self: end;
   cursor: pointer;
+  pointer-events: auto;
+}
+
+#validateBtn {
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: linear-gradient(90deg, rgba(255, 215, 153, 0.22), rgba(157, 214, 255, 0.22));
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  align-self: end;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+  align-items: end;
+}
+
+#generateBtn:active,
+#validateBtn:active {
+  transform: translateY(1px);
 }
 
 .panel h3 {
@@ -151,6 +177,40 @@ li a {
   margin-top: 0.6rem;
 }
 
+.ticket-status {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.ticket-ok {
+  background: rgba(87, 214, 137, 0.2);
+  border: 1px solid rgba(87, 214, 137, 0.45);
+  color: #c9ffe1;
+}
+
+.ticket-fix {
+  background: rgba(255, 139, 139, 0.2);
+  border: 1px solid rgba(255, 139, 139, 0.45);
+  color: #ffd5d5;
+}
+
+.validation-list {
+  margin: 0.6rem 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.validation-list li {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.6rem;
+}
+
 @media (max-width: 1024px) {
   .page {
     max-width: 100%;
@@ -170,7 +230,13 @@ li a {
   .controls {
     grid-template-columns: 1fr;
   }
+  .actions {
+    grid-template-columns: 1fr;
+  }
   #generateBtn {
+    width: 100%;
+  }
+  #validateBtn {
     width: 100%;
   }
 }

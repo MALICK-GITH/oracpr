@@ -1,4 +1,13 @@
-const charts = [];
+const AUTO_REFRESH_SECONDS = 60;
+const DRIFT_THRESHOLD_PERCENT = 8;
+
+let pulseChart = null;
+let currentMatchId = null;
+let refreshIntervalId = null;
+let countdownIntervalId = null;
+let countdown = AUTO_REFRESH_SECONDS;
+let previousOdds = null;
+let loading = false;
 
 function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
@@ -21,27 +30,24 @@ function chartGridColor() {
   return "rgba(255,255,255,0.12)";
 }
 
-function setupTabs() {
-  const tabs = document.querySelectorAll(".analytics-tab");
-  const panels = document.querySelectorAll(".tab-content");
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const target = tab.dataset.target;
-      tabs.forEach((t) => t.classList.remove("active"));
-      panels.forEach((p) => p.classList.remove("active"));
-      tab.classList.add("active");
-      const panel = document.getElementById(target);
-      if (panel) panel.classList.add("active");
-    });
-  });
+function updateRefreshBadge() {
+  const el = document.getElementById("refreshBadge");
+  if (el) el.textContent = `Auto-refresh dans ${countdown}s`;
 }
 
-function destroyCharts() {
-  while (charts.length) {
-    const c = charts.pop();
-    try {
-      c.destroy();
-    } catch {}
+function startAutoRefresh() {
+  if (!refreshIntervalId) {
+    refreshIntervalId = setInterval(() => {
+      countdown = AUTO_REFRESH_SECONDS;
+      updateRefreshBadge();
+      loadData("auto");
+    }, AUTO_REFRESH_SECONDS * 1000);
+  }
+  if (!countdownIntervalId) {
+    countdownIntervalId = setInterval(() => {
+      countdown = Math.max(0, countdown - 1);
+      updateRefreshBadge();
+    }, 1000);
   }
 }
 
@@ -61,6 +67,57 @@ function impliedProbabilities(odds1x2) {
   };
 }
 
+function extractOdds(match) {
+  return {
+    home: toNumber(match?.odds1x2?.home, 0),
+    draw: toNumber(match?.odds1x2?.draw, 0),
+    away: toNumber(match?.odds1x2?.away, 0),
+  };
+}
+
+function computeDrift(previous, next) {
+  if (!previous) return [];
+  const labels = {
+    home: "Victoire domicile (1)",
+    draw: "Match nul (X)",
+    away: "Victoire exterieur (2)",
+  };
+  const drifts = [];
+  for (const key of ["home", "draw", "away"]) {
+    const oldVal = toNumber(previous[key], 0);
+    const newVal = toNumber(next[key], 0);
+    if (oldVal <= 0 || newVal <= 0) continue;
+    const pct = Math.abs(((newVal - oldVal) / oldVal) * 100);
+    if (pct >= DRIFT_THRESHOLD_PERCENT) {
+      drifts.push({
+        label: labels[key],
+        oldVal,
+        newVal,
+        pct: Number(pct.toFixed(1)),
+      });
+    }
+  }
+  return drifts;
+}
+
+function renderDriftAlert(drifts) {
+  const box = document.getElementById("driftAlert");
+  if (!box) return;
+  if (!drifts.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  const rows = drifts
+    .map((d) => `<li>${d.label}: ${formatOdd(d.oldVal)} -> ${formatOdd(d.newVal)} (${d.pct}%)</li>`)
+    .join("");
+  box.classList.remove("hidden");
+  box.innerHTML = `
+    <h2 class="drift-title">Alerte Drift Cotes</h2>
+    <ul class="drift-list">${rows}</ul>
+  `;
+}
+
 function renderMaster(master, analyse) {
   const el = document.getElementById("master");
   el.innerHTML = `
@@ -76,7 +133,7 @@ function renderMaster(master, analyse) {
 
 function renderBots(bots) {
   const el = document.getElementById("bots");
-  const rows = Object.values(bots || {})
+  const rows = Object.values(bots || [])
     .map((b) => {
       const picks = Array.isArray(b.paris_recommandes)
         ? b.paris_recommandes
@@ -113,232 +170,129 @@ function renderMarkets(markets) {
   el.innerHTML = `<h2>Marches Analyses</h2><ul>${li || "<li>Aucun marche</li>"}</ul>`;
 }
 
-function makeForceChart(match) {
-  const p = impliedProbabilities(match.odds1x2);
-  const ctx = document.getElementById("chartForce");
-  if (!ctx || !window.Chart) return;
-  charts.push(
-    new Chart(ctx, {
-      type: "doughnut",
-      data: {
-        labels: [match.teamHome, match.teamAway, "Nul"],
-        datasets: [{ data: [p.home, p.away, p.draw], backgroundColor: ["#55b0e8", "#ea7166", "#9a6fd6"] }],
-      },
-      options: {
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function makeOddsSnapshotChart(match) {
-  const ctx = document.getElementById("chartOddsSnapshot");
-  if (!ctx || !window.Chart) return;
-  charts.push(
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: [`Victoire ${match.teamHome}`, "Match nul", `Victoire ${match.teamAway}`],
-        datasets: [{ label: "Cote reelle", data: [toNumber(match.odds1x2?.home), toNumber(match.odds1x2?.draw), toNumber(match.odds1x2?.away)], backgroundColor: ["#55b0e8", "#64d18c", "#ea7166"] }],
-      },
-      options: {
-        scales: {
-          y: { ticks: { color: chartTextColor() }, grid: { color: chartGridColor() } },
-          x: { ticks: { color: chartTextColor() }, grid: { color: "rgba(255,255,255,0.05)" } },
-        },
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function makeBotsChart(prediction) {
-  const ctx = document.getElementById("chartBots");
-  if (!ctx || !window.Chart) return;
-  const bots = Object.values(prediction?.bots || {});
-  const labels = bots.map((b) => (b.bot_name || "").replace(" ALTERNATIFS", ""));
-  const data = bots.map((b) => toNumber(b.confiance_globale, 0));
-  labels.push("MAITRE");
-  data.push(toNumber(prediction?.maitre?.decision_finale?.confiance_numerique, 0));
-
-  charts.push(
-    new Chart(ctx, {
-      type: "bar",
-      data: { labels, datasets: [{ label: "Confiance (%)", data, backgroundColor: ["#55b0e8", "#ea7166", "#64d18c", "#c5a65e", "#9a6fd6", "#ffd79c"] }] },
-      options: {
-        scales: {
-          y: { min: 0, max: 100, ticks: { color: chartTextColor() }, grid: { color: chartGridColor() } },
-          x: { ticks: { color: chartTextColor() } },
-        },
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function makeTop3Chart(prediction) {
-  const ctx = document.getElementById("chartTop3");
-  if (!ctx || !window.Chart) return;
-  const top3 = prediction?.analyse_avancee?.top_3_recommandations || [];
-  charts.push(
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: top3.map((x, i) => `#${i + 1} ${String(x.pari || "").slice(0, 20)}`),
-        datasets: [
-          { label: "Score composite", data: top3.map((x) => toNumber(x.score_composite, 0)), backgroundColor: "#55b0e8" },
-          { label: "Value", data: top3.map((x) => toNumber(x.value, 0)), backgroundColor: "#ea7166" },
-        ],
-      },
-      options: {
-        scales: {
-          y: { ticks: { color: chartTextColor() }, grid: { color: chartGridColor() } },
-          x: { ticks: { color: chartTextColor(), maxRotation: 35, minRotation: 20 } },
-        },
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function marketStats(markets) {
-  const map = new Map();
-  for (const m of markets || []) {
-    const type = m.type || "AUTRE";
-    if (!map.has(type)) map.set(type, { count: 0, oddsSum: 0 });
-    const r = map.get(type);
-    r.count += 1;
-    r.oddsSum += toNumber(m.cote, 0);
-  }
-  return [...map.entries()].map(([type, v]) => ({
-    type,
-    count: v.count,
-    avgOdd: Number((v.oddsSum / Math.max(v.count, 1)).toFixed(3)),
-  }));
-}
-
-function makeMarketTypeChart(markets) {
-  const ctx = document.getElementById("chartMarketTypes");
-  if (!ctx || !window.Chart) return;
-  const stats = marketStats(markets);
-  charts.push(
-    new Chart(ctx, {
-      type: "pie",
-      data: {
-        labels: stats.map((s) => s.type),
-        datasets: [{ data: stats.map((s) => s.count), backgroundColor: ["#55b0e8", "#ea7166", "#64d18c", "#9a6fd6", "#c5a65e", "#7ec6a2"] }],
-      },
-      options: {
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function makeMarketOddsChart(markets) {
-  const ctx = document.getElementById("chartMarketOdds");
-  if (!ctx || !window.Chart) return;
-  const stats = marketStats(markets);
-  charts.push(
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: stats.map((s) => s.type),
-        datasets: [{ label: "Cote moyenne", data: stats.map((s) => s.avgOdd), backgroundColor: "#9dd6ff" }],
-      },
-      options: {
-        scales: {
-          y: { ticks: { color: chartTextColor() }, grid: { color: chartGridColor() } },
-          x: { ticks: { color: chartTextColor() } },
-        },
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function makeConsensusChart(prediction, markets) {
-  const ctx = document.getElementById("chartConsensus");
-  if (!ctx || !window.Chart) return;
-  const votes = new Map();
-  for (const bot of Object.values(prediction?.bots || {})) {
-    for (const p of bot?.paris_recommandes || []) {
-      votes.set(p.nom, (votes.get(p.nom) || 0) + 1);
-    }
-  }
-  const masterPick = prediction?.maitre?.decision_finale?.pari_choisi;
-  if (masterPick) votes.set(masterPick, (votes.get(masterPick) || 0) + 2);
-  const top = [...votes.entries()]
-    .map(([name, vote]) => {
-      const market = (markets || []).find((m) => m.nom === name);
-      return { name, vote, odd: toNumber(market?.cote, 0) };
-    })
-    .sort((a, b) => b.vote - a.vote)
-    .slice(0, 8);
-
-  charts.push(
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: top.map((x) => x.name.slice(0, 24)),
-        datasets: [
-          { label: "Votes consensus", data: top.map((x) => x.vote), backgroundColor: "#64d18c" },
-          { label: "Cote", data: top.map((x) => x.odd), backgroundColor: "#ea7166" },
-        ],
-      },
-      options: {
-        scales: {
-          y: { ticks: { color: chartTextColor() }, grid: { color: chartGridColor() } },
-          x: { ticks: { color: chartTextColor(), maxRotation: 35, minRotation: 20 } },
-        },
-        plugins: { legend: { labels: { color: chartTextColor() } } },
-      },
-    })
-  );
-}
-
-function renderAnalytics(data) {
-  destroyCharts();
+function renderPulseChart(data) {
   const match = data.match || {};
   const prediction = data.prediction || {};
-  const markets = data.bettingMarkets || [];
+  const bots = Object.values(prediction.bots || {});
+  const probs = impliedProbabilities(match.odds1x2);
+  const avgBotConfidence =
+    bots.length > 0
+      ? Number((bots.reduce((acc, b) => acc + toNumber(b.confiance_globale, 0), 0) / bots.length).toFixed(2))
+      : 0;
+  const masterConfidence = toNumber(prediction?.maitre?.decision_finale?.confiance_numerique, 0);
 
-  makeForceChart(match);
-  makeOddsSnapshotChart(match);
-  makeBotsChart(prediction);
-  makeTop3Chart(prediction);
-  makeMarketTypeChart(markets);
-  makeMarketOddsChart(markets);
-  makeConsensusChart(prediction, markets);
-}
+  const labels = ["Prob 1", "Prob X", "Prob 2", "Conf Bots Moy", "Conf Maitre"];
+  const probLine = [probs.home, probs.draw, probs.away, avgBotConfidence, masterConfidence];
+  const oddBars = [
+    toNumber(match.odds1x2?.home, 0),
+    toNumber(match.odds1x2?.draw, 0),
+    toNumber(match.odds1x2?.away, 0),
+    null,
+    null,
+  ];
 
-async function load() {
-  setupTabs();
-  const id = qs("id");
-  if (!id) {
-    document.getElementById("title").textContent = "Match non specifie";
-    document.getElementById("sub").textContent = "Ajoute ?id=...";
-    return;
+  const ctx = document.getElementById("chartPulse");
+  if (!ctx || !window.Chart) return;
+  if (pulseChart) {
+    try {
+      pulseChart.destroy();
+    } catch {}
   }
 
+  pulseChart = new Chart(ctx, {
+    data: {
+      labels,
+      datasets: [
+        {
+          type: "line",
+          label: "Indice confiance/probabilite (%)",
+          data: probLine,
+          yAxisID: "yPercent",
+          borderColor: "#55b0e8",
+          backgroundColor: "rgba(85,176,232,0.18)",
+          fill: true,
+          tension: 0.28,
+        },
+        {
+          type: "bar",
+          label: "Cotes reelles 1X2",
+          data: oddBars,
+          yAxisID: "yOdds",
+          backgroundColor: ["#ea7166", "#64d18c", "#9a6fd6", "transparent", "transparent"],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        yPercent: {
+          type: "linear",
+          position: "left",
+          min: 0,
+          max: 100,
+          ticks: { color: chartTextColor() },
+          grid: { color: chartGridColor() },
+        },
+        yOdds: {
+          type: "linear",
+          position: "right",
+          ticks: { color: chartTextColor() },
+          grid: { drawOnChartArea: false },
+        },
+        x: {
+          ticks: { color: chartTextColor() },
+          grid: { color: "rgba(255,255,255,0.06)" },
+        },
+      },
+      plugins: {
+        legend: { labels: { color: chartTextColor() } },
+      },
+    },
+  });
+}
+
+async function loadData(trigger = "manual") {
+  if (loading || !currentMatchId) return;
+  loading = true;
   try {
-    const res = await fetch(`/api/matches/${encodeURIComponent(id)}/details`, { cache: "no-store" });
+    const res = await fetch(`/api/matches/${encodeURIComponent(currentMatchId)}/details`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || data.message || "Erreur API");
 
     const match = data.match || {};
     document.getElementById("title").textContent = `${match.teamHome} vs ${match.teamAway}`;
-    document.getElementById("sub").textContent = `${match.league} | marche(s): ${data.bettingMarkets?.length || 0}`;
+    document.getElementById("sub").textContent = `${match.league} | marche(s): ${data.bettingMarkets?.length || 0}${trigger === "auto" ? " | mise a jour auto" : ""}`;
 
     renderMaster(data.prediction?.maitre?.decision_finale || {}, data.prediction?.maitre?.analyse_bots || {});
-    renderAnalytics(data);
+    renderPulseChart(data);
     renderBots(data.prediction?.bots || {});
     renderTop3(data.prediction?.analyse_avancee?.top_3_recommandations || []);
     renderMarkets(data.bettingMarkets || []);
+
+    const currentOdds = extractOdds(match);
+    const drifts = computeDrift(previousOdds, currentOdds);
+    renderDriftAlert(drifts);
+    previousOdds = currentOdds;
   } catch (error) {
     document.getElementById("title").textContent = "Erreur de chargement";
     document.getElementById("sub").textContent = error.message;
+  } finally {
+    loading = false;
   }
 }
 
-load();
+function init() {
+  currentMatchId = qs("id");
+  if (!currentMatchId) {
+    document.getElementById("title").textContent = "Match non specifie";
+    document.getElementById("sub").textContent = "Ajoute ?id=...";
+    return;
+  }
+  countdown = AUTO_REFRESH_SECONDS;
+  updateRefreshBadge();
+  loadData("manual");
+  startAutoRefresh();
+}
+
+init();

@@ -16,60 +16,23 @@
     <div class="bg-grid" aria-hidden="true"></div>
     <main class="page">
       <a href="/" class="back-link">Retour aux matchs</a>
+      <a href="/about.html" class="back-link">A propos du createur</a>
       <header class="hero">
         <p class="tag">Predictions Unifiees</p>
         <h1 id="title">Chargement...</h1>
         <p id="sub">Analyse complete en cours</p>
+        <div class="hero-tools">
+          <span class="refresh-badge" id="refreshBadge">Auto-refresh dans 60s</span>
+        </div>
       </header>
 
+      <section class="panel hidden" id="driftAlert"></section>
       <section class="panel" id="master"></section>
       <section class="panel analytics-panel">
-        <h2>Analytics Avancees</h2>
-        <div class="analytics-tabs">
-          <button class="analytics-tab active" data-target="tab-stats" type="button">Statistiques</button>
-          <button class="analytics-tab" data-target="tab-predictions" type="button">Predictions IA</button>
-          <button class="analytics-tab" data-target="tab-markets" type="button">Marches</button>
-          <button class="analytics-tab" data-target="tab-consensus" type="button">Consensus</button>
-        </div>
-
-        <div class="tab-content active" id="tab-stats">
-          <div class="chart-card">
-            <h3>Repartition des Forces</h3>
-            <canvas id="chartForce"></canvas>
-          </div>
-          <div class="chart-card">
-            <h3>Cotes 1X2 Reelles</h3>
-            <canvas id="chartOddsSnapshot"></canvas>
-          </div>
-        </div>
-
-        <div class="tab-content" id="tab-predictions">
-          <div class="chart-card">
-            <h3>Confiance Systeme par Systeme</h3>
-            <canvas id="chartBots"></canvas>
-          </div>
-          <div class="chart-card">
-            <h3>Top Recommandations Reelles</h3>
-            <canvas id="chartTop3"></canvas>
-          </div>
-        </div>
-
-        <div class="tab-content" id="tab-markets">
-          <div class="chart-card">
-            <h3>Repartition des Types de Marches</h3>
-            <canvas id="chartMarketTypes"></canvas>
-          </div>
-          <div class="chart-card">
-            <h3>Cote Moyenne par Type</h3>
-            <canvas id="chartMarketOdds"></canvas>
-          </div>
-        </div>
-
-        <div class="tab-content" id="tab-consensus">
-          <div class="chart-card">
-            <h3>Selection Collective (Bots + Maitre)</h3>
-            <canvas id="chartConsensus"></canvas>
-          </div>
+        <h2>Graphique Site Dedie</h2>
+        <div class="chart-card">
+          <h3>Indice SOLITAIRE Pulse (Donnees Reelles)</h3>
+          <canvas id="chartPulse"></canvas>
         </div>
       </section>
       <section class="panel" id="bots"></section>

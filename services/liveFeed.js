@@ -54,6 +54,17 @@ function extractOneXTwo(event) {
   };
 }
 
+function toLogoProxyUrl(fileName) {
+  const clean = String(fileName || "").trim();
+  if (!clean) return null;
+  return `/api/logo/${encodeURIComponent(clean)}`;
+}
+
+function toTeamBadgeUrl(teamName) {
+  const clean = String(teamName || "").trim();
+  return `/api/team-badge?name=${encodeURIComponent(clean || "Equipe")}`;
+}
+
 function parseScoreContext(event) {
   const fs = event?.SC?.FS || {};
   const score1 = Number(fs.S1 ?? fs.H ?? fs.Home ?? fs.SA ?? 0) || 0;
@@ -151,20 +162,57 @@ function extractAllBets(event) {
 
 function simplifyEvent(event) {
   const context = parseScoreContext(event);
+  const homeLogoFile = Array.isArray(event?.O1IMG) ? event.O1IMG[0] : null;
+  const awayLogoFile = Array.isArray(event?.O2IMG) ? event.O2IMG[0] : null;
+  const homeBadge = toTeamBadgeUrl(event.O1 || "Equipe 1");
+  const awayBadge = toTeamBadgeUrl(event.O2 || "Equipe 2");
+  const homeProxy = toLogoProxyUrl(homeLogoFile);
+  const awayProxy = toLogoProxyUrl(awayLogoFile);
   return {
     id: event.I,
     teamHome: event.O1 || "Equipe 1",
     teamAway: event.O2 || "Equipe 2",
+    teamHomeLogo: homeProxy || homeBadge,
+    teamAwayLogo: awayProxy || awayBadge,
+    teamHomeLogoFallback: homeBadge,
+    teamAwayLogoFallback: awayBadge,
+    teamHomeLogoFile: homeLogoFile || null,
+    teamAwayLogoFile: awayLogoFile || null,
     league: event.L || event.LE || "Competition virtuelle",
     startTimeUnix: Number(event.S) || null,
     sportId: Number(event.SI) || null,
     statusText: event.SC?.SLS || event.SC?.I || "En attente",
     infoText: event.SC?.I || "",
+    statusCode: Number(event.SC?.GS) || null,
+    phase: event.SC?.CPS || "",
     score: event.SC?.FS || {},
     context,
     odds1x2: extractOneXTwo(event),
     betsCount: extractAllBets(event).length,
   };
+}
+
+function isStrictUpcomingEvent(event, nowSec) {
+  const start = Number(event?.S);
+  if (!Number.isFinite(start) || start <= nowSec) return false;
+
+  const gs = Number(event?.SC?.GS);
+  const info = normalizeText(event?.SC?.I || "");
+  const sls = normalizeText(event?.SC?.SLS || "");
+  const cps = normalizeText(event?.SC?.CPS || "");
+
+  const preByCode = gs === 128;
+  const preByInfo = info.includes("avant le debut") || info.includes("avant le debut du jeu");
+  const preBySls = sls.includes("debut dans");
+  const inPlayMarkers =
+    cps.includes("mi-temps") ||
+    cps.includes("1ere mi-temps") ||
+    cps.includes("2eme mi-temps") ||
+    cps.includes("jeu termine") ||
+    info.includes("match termine");
+
+  if (inPlayMarkers) return false;
+  return preByCode || preByInfo || preBySls;
 }
 
 function schemaOf(value, depth = 2) {
@@ -313,6 +361,7 @@ function normalizeLeague(value) {
 
 async function getCouponSelection(size = 3, league = "all") {
   const payload = await fetchLiveFeedRaw();
+  const nowSec = Math.floor(Date.now() / 1000);
   const events = Array.isArray(payload?.Value) ? payload.Value : [];
   const sportEvents = events.filter((event) => Number(event?.SI) === 85);
   const penaltyOnly = sportEvents.filter(isPenaltyEvent);
@@ -322,8 +371,9 @@ async function getCouponSelection(size = 3, league = "all") {
     selectedLeague && selectedLeague !== "all"
       ? sourceEvents.filter((e) => normalizeLeague(e?.L || e?.LE || "") === selectedLeague)
       : sourceEvents;
+  const upcomingEvents = eventsFiltered.filter((e) => isStrictUpcomingEvent(e, nowSec));
 
-  const allDetails = eventsFiltered.map((event) => buildMatchPredictionDetails(event));
+  const allDetails = upcomingEvents.map((event) => buildMatchPredictionDetails(event));
   const candidates = allDetails
     .map((details) => {
       const option = pickCouponOption(details);
@@ -358,6 +408,7 @@ async function getCouponSelection(size = 3, league = "all") {
     generatedAt: new Date().toISOString(),
     requestedMatches: wanted,
     availableCandidates: candidates.length,
+    totalUpcomingMatches: upcomingEvents.length,
     leagueFilter: league || "all",
     coupon: picks,
     summary: {
@@ -367,6 +418,141 @@ async function getCouponSelection(size = 3, league = "all") {
     },
     warning:
       "Aucune combinaison n'est garantie gagnante. Ce coupon est une optimisation algorithmique.",
+  };
+}
+
+function computeSelectionConfidence(details, selectionPari) {
+  const target = String(selectionPari || "");
+  const master = details?.prediction?.maitre?.decision_finale || {};
+  if (master.pari_choisi === target) {
+    return Number(master.confiance_numerique || 0);
+  }
+
+  let best = 0;
+  const bots = Object.values(details?.prediction?.bots || {});
+  for (const bot of bots) {
+    for (const p of bot?.paris_recommandes || []) {
+      if (String(p?.nom || "") === target) {
+        best = Math.max(best, Number(p?.confiance || 0));
+      }
+    }
+  }
+  return Number(best || 0);
+}
+
+async function validateCouponTicket(ticket, options = {}) {
+  const driftThreshold = Number(options?.driftThresholdPercent) > 0 ? Number(options.driftThresholdPercent) : 6;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const selections = Array.isArray(ticket?.selections) ? ticket.selections : [];
+
+  if (selections.length === 0) {
+    return {
+      validatedAt: new Date().toISOString(),
+      status: "TICKET_A_CORRIGER",
+      summary: { total: 0, ok: 0, toFix: 0 },
+      issues: [{ code: "EMPTY_TICKET", message: "Aucune selection fournie." }],
+      validatedSelections: [],
+    };
+  }
+
+  const payload = await fetchLiveFeedRaw();
+  const events = Array.isArray(payload?.Value) ? payload.Value : [];
+  const eventsById = new Map(events.map((e) => [String(e?.I), e]));
+  const validatedSelections = [];
+  const issues = [];
+
+  for (const sel of selections) {
+    const matchId = String(sel?.matchId || "");
+    const event = eventsById.get(matchId);
+    if (!event) {
+      validatedSelections.push({
+        matchId,
+        status: "invalid",
+        reason: "MATCH_NOT_FOUND",
+      });
+      issues.push({ code: "MATCH_NOT_FOUND", matchId, message: `Match ${matchId} introuvable.` });
+      continue;
+    }
+
+    const details = buildMatchPredictionDetails(event);
+    const match = details.match;
+    const selectedPari = String(sel?.pari || "");
+    const selectedOdd = Number(sel?.cote);
+    const market = (details.bettingMarkets || []).find((m) => String(m.nom) === selectedPari);
+    const currentOdd = market ? Number(market.cote) : null;
+    const started = Number(match?.startTimeUnix) <= nowSec;
+
+    let driftPct = null;
+    let driftExceeded = false;
+    if (Number.isFinite(selectedOdd) && selectedOdd > 0 && Number.isFinite(currentOdd) && currentOdd > 0) {
+      driftPct = Number((Math.abs(((currentOdd - selectedOdd) / selectedOdd) * 100)).toFixed(2));
+      driftExceeded = driftPct > driftThreshold;
+    }
+
+    const confidence = computeSelectionConfidence(details, selectedPari);
+    const recommended = pickCouponOption(details);
+    const shouldReplace =
+      started ||
+      !market ||
+      driftExceeded ||
+      confidence < 50;
+
+    const status = shouldReplace ? "replace" : "ok";
+    const reasonCodes = [];
+    if (started) reasonCodes.push("MATCH_ALREADY_STARTED");
+    if (!market) reasonCodes.push("MARKET_UNAVAILABLE");
+    if (driftExceeded) reasonCodes.push("ODD_DRIFT");
+    if (confidence < 50) reasonCodes.push("LOW_CONFIDENCE");
+
+    const row = {
+      matchId,
+      teams: `${match.teamHome} vs ${match.teamAway}`,
+      league: match.league,
+      status,
+      selected: {
+        pari: selectedPari,
+        odd: Number.isFinite(selectedOdd) ? selectedOdd : null,
+      },
+      current: {
+        pari: market?.nom || null,
+        odd: Number.isFinite(currentOdd) ? currentOdd : null,
+      },
+      confidence: Number(confidence.toFixed(1)),
+      driftPercent: driftPct,
+      reasonCodes,
+      recommendation: recommended
+        ? {
+            pari: recommended.pari,
+            odd: recommended.cote,
+            confidence: Number(recommended.confiance?.toFixed ? recommended.confiance.toFixed(1) : recommended.confiance),
+            source: recommended.source,
+          }
+        : null,
+    };
+
+    validatedSelections.push(row);
+    if (status !== "ok") {
+      issues.push({
+        code: reasonCodes[0] || "REPLACE_REQUIRED",
+        matchId,
+        message: `${row.teams}: correction recommandee (${reasonCodes.join(", ") || "raison inconnue"}).`,
+      });
+    }
+  }
+
+  const ok = validatedSelections.filter((x) => x.status === "ok").length;
+  const toFix = validatedSelections.length - ok;
+  return {
+    validatedAt: new Date().toISOString(),
+    status: toFix === 0 ? "TICKET_OK" : "TICKET_A_CORRIGER",
+    driftThresholdPercent: driftThreshold,
+    summary: {
+      total: validatedSelections.length,
+      ok,
+      toFix,
+    },
+    issues,
+    validatedSelections,
   };
 }
 
@@ -402,4 +588,6 @@ module.exports = {
   getStructure,
   getMatchPredictionDetails,
   getCouponSelection,
+  validateCouponTicket,
+  isStrictUpcomingEvent,
 };

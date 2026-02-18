@@ -15,6 +15,7 @@
   <body>
     <main class="page">
       <a class="back" href="/">Retour aux matchs</a>
+      <a class="back" href="/about.html">A propos du createur</a>
       <header class="hero">
         <p class="tag">Coupon Builder</p>
         <h1>Coupon Optimise</h1>
@@ -32,11 +33,17 @@
             <option value="all">Toutes les ligues</option>
           </select>
         </label>
-        <button id="generateBtn" type="button">Generer Coupon</button>
+        <div class="actions">
+          <button id="generateBtn" type="button">Generer Coupon</button>
+          <button id="validateBtn" type="button">Valider Ticket Pro</button>
+        </div>
       </section>
 
       <section class="panel" id="result">
         <p>En attente de generation.</p>
+      </section>
+      <section class="panel" id="validation">
+        <p>Validation ticket en attente.</p>
       </section>
     </main>
     <script src="/coupon.js" defer></script>

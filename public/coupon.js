@@ -2,6 +2,41 @@ function formatOdd(value) {
   return typeof value === "number" ? value.toFixed(3) : "-";
 }
 
+let lastCouponData = null;
+
+function toNumber(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeText(v) {
+  return String(v || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function isStrictUpcomingMatch(match, nowSec) {
+  const start = toNumber(match?.startTimeUnix, 0);
+  if (start <= nowSec) return false;
+
+  const gs = toNumber(match?.statusCode, 0);
+  const info = normalizeText(match?.infoText || "");
+  const sls = normalizeText(match?.statusText || "");
+  const phase = normalizeText(match?.phase || "");
+
+  const preByCode = gs === 128;
+  const preByInfo = info.includes("avant le debut");
+  const preBySls = sls.includes("debut dans");
+  const inPlayMarkers =
+    phase.includes("mi-temps") ||
+    phase.includes("jeu termine") ||
+    info.includes("match termine");
+
+  if (inPlayMarkers) return false;
+  return preByCode || preByInfo || preBySls;
+}
+
 async function readJsonSafe(response) {
   const text = await response.text();
   try {
@@ -44,9 +79,11 @@ async function generateCouponFallback(size, league) {
   }
 
   const normLeague = String(league || "all").trim().toLowerCase();
+  const nowSec = Math.floor(Date.now() / 1000);
   const base = Array.isArray(listData.matches) ? listData.matches : [];
-  const filtered =
+  const filteredByLeague =
     normLeague === "all" ? base : base.filter((m) => String(m.league || "").trim().toLowerCase() === normLeague);
+  const filtered = filteredByLeague.filter((m) => isStrictUpcomingMatch(m, nowSec));
 
   const sample = filtered.slice(0, 20);
   const candidates = [];
@@ -88,7 +125,8 @@ async function generateCouponFallback(size, league) {
 }
 
 function setResultHtml(html) {
-  document.getElementById("result").innerHTML = html;
+  const el = document.getElementById("result");
+  if (el) el.innerHTML = html;
 }
 
 async function loadLeagues() {
@@ -112,6 +150,7 @@ async function loadLeagues() {
 }
 
 function renderCoupon(data) {
+  lastCouponData = data;
   const picks = Array.isArray(data?.coupon) ? data.coupon : [];
   if (!picks.length) {
     setResultHtml(`
@@ -146,6 +185,51 @@ function renderCoupon(data) {
     <ol>${items}</ol>
     <p class="warning">${data.warning || ""}</p>
   `);
+  const validationPanel = document.getElementById("validation");
+  if (validationPanel) {
+    validationPanel.innerHTML = "<p>Ticket genere. Clique sur <strong>Valider Ticket Pro</strong>.</p>";
+  }
+}
+
+function renderValidation(report) {
+  let panel = document.getElementById("validation");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "validation";
+    panel.className = "panel";
+    const root = document.querySelector("main.page");
+    if (root) root.appendChild(panel);
+  }
+  const statusClass = report.status === "TICKET_OK" ? "ticket-ok" : "ticket-fix";
+  const statusLabel = report.status === "TICKET_OK" ? "TICKET OK" : "TICKET A CORRIGER";
+
+  const rows = (report.validatedSelections || [])
+    .map((s) => {
+      const rec = s.recommendation
+        ? `Suggestion: ${s.recommendation.pari} | cote ${formatOdd(s.recommendation.odd)} | conf ${s.recommendation.confidence}%`
+        : "Aucune suggestion disponible";
+      const drift = s.driftPercent != null ? `${s.driftPercent}%` : "-";
+      return `
+        <li>
+          <strong>${s.teams || s.matchId}</strong><br />
+          Etat: ${s.status.toUpperCase()} | Confiance: ${s.confidence}% | Drift: ${drift}<br />
+          ${rec}
+        </li>
+      `;
+    })
+    .join("");
+
+  panel.innerHTML = `
+    <h3>Validation Ticket Pro</h3>
+    <p><span class="ticket-status ${statusClass}">${statusLabel}</span></p>
+    <div class="meta">
+      <span>Total: ${report.summary?.total ?? 0}</span>
+      <span>OK: ${report.summary?.ok ?? 0}</span>
+      <span>A corriger: ${report.summary?.toFix ?? 0}</span>
+      <span>Seuil drift: ${report.driftThresholdPercent ?? 6}%</span>
+    </div>
+    <ul class="validation-list">${rows || "<li>Aucune ligne de ticket</li>"}</ul>
+  `;
 }
 
 async function generateCoupon() {
@@ -172,5 +256,147 @@ async function generateCoupon() {
   }
 }
 
-document.getElementById("generateBtn").addEventListener("click", generateCoupon);
+async function validateTicketFallback(payload) {
+  const selections = Array.isArray(payload?.selections) ? payload.selections : [];
+  const nowSec = Math.floor(Date.now() / 1000);
+  const driftThresholdPercent = toNumber(payload?.driftThresholdPercent, 6);
+  const validatedSelections = [];
+  const issues = [];
+
+  for (const sel of selections) {
+    const matchId = String(sel?.matchId || "");
+    try {
+      const res = await fetch(`/api/matches/${encodeURIComponent(matchId)}/details`, { cache: "no-store" });
+      const details = await readJsonSafe(res);
+      if (!res.ok || !details.success) {
+        validatedSelections.push({ matchId, status: "invalid", reasonCodes: ["MATCH_NOT_FOUND"], recommendation: null });
+        issues.push({ code: "MATCH_NOT_FOUND", matchId, message: `Match ${matchId} introuvable.` });
+        continue;
+      }
+
+      const match = details.match || {};
+      const selectedPari = String(sel?.pari || "");
+      const selectedOdd = toNumber(sel?.cote, 0);
+      const market = (details.bettingMarkets || []).find((m) => String(m.nom) === selectedPari);
+      const currentOdd = market ? toNumber(market.cote, 0) : 0;
+      const started = !isStrictUpcomingMatch(match, nowSec);
+      const driftPercent =
+        selectedOdd > 0 && currentOdd > 0
+          ? Number((Math.abs(((currentOdd - selectedOdd) / selectedOdd) * 100)).toFixed(2))
+          : null;
+      const driftExceeded = driftPercent != null && driftPercent > driftThresholdPercent;
+
+      const recommendation = pickOptionFromDetails(details);
+      const confidence = recommendation && recommendation.pari === selectedPari ? toNumber(recommendation.confiance, 0) : 50;
+      const reasonCodes = [];
+      if (started) reasonCodes.push("MATCH_ALREADY_STARTED");
+      if (!market) reasonCodes.push("MARKET_UNAVAILABLE");
+      if (driftExceeded) reasonCodes.push("ODD_DRIFT");
+      if (confidence < 50) reasonCodes.push("LOW_CONFIDENCE");
+      const status = reasonCodes.length ? "replace" : "ok";
+
+      validatedSelections.push({
+        matchId,
+        teams: `${match.teamHome || "?"} vs ${match.teamAway || "?"}`,
+        league: match.league || "",
+        status,
+        selected: { pari: selectedPari, odd: selectedOdd || null },
+        current: { pari: market?.nom || null, odd: currentOdd || null },
+        confidence: Number(confidence.toFixed(1)),
+        driftPercent,
+        reasonCodes,
+        recommendation: recommendation
+          ? {
+              pari: recommendation.pari,
+              odd: toNumber(recommendation.cote, 0),
+              confidence: Number(toNumber(recommendation.confiance, 0).toFixed(1)),
+              source: recommendation.source,
+            }
+          : null,
+      });
+
+      if (status !== "ok") {
+        issues.push({
+          code: reasonCodes[0] || "REPLACE_REQUIRED",
+          matchId,
+          message: `${match.teamHome || "?"} vs ${match.teamAway || "?"}: correction recommandee (${reasonCodes.join(", ")}).`,
+        });
+      }
+    } catch {
+      validatedSelections.push({ matchId, status: "invalid", reasonCodes: ["DETAILS_UNAVAILABLE"], recommendation: null });
+      issues.push({ code: "DETAILS_UNAVAILABLE", matchId, message: `Impossible de verifier le match ${matchId}.` });
+    }
+  }
+
+  const ok = validatedSelections.filter((x) => x.status === "ok").length;
+  const toFix = validatedSelections.length - ok;
+  return {
+    success: true,
+    validatedAt: new Date().toISOString(),
+    status: toFix === 0 ? "TICKET_OK" : "TICKET_A_CORRIGER",
+    driftThresholdPercent,
+    summary: { total: validatedSelections.length, ok, toFix },
+    issues,
+    validatedSelections,
+  };
+}
+
+async function validateTicket() {
+  let panel = document.getElementById("validation");
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "validation";
+    panel.className = "panel";
+    const root = document.querySelector("main.page");
+    if (root) root.appendChild(panel);
+  }
+  if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
+    panel.innerHTML = "<p>Genere d'abord un coupon avant validation.</p>";
+    return;
+  }
+
+  panel.innerHTML = "<p>Validation ticket en cours...</p>";
+
+  try {
+    const payload = {
+      driftThresholdPercent: 6,
+      selections: lastCouponData.coupon.map((x) => ({
+        matchId: x.matchId,
+        pari: x.pari,
+        cote: x.cote,
+      })),
+    };
+
+    let data;
+    try {
+      const res = await fetch("/api/coupon/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      data = await readJsonSafe(res);
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || data.message || "Erreur validation ticket");
+      }
+    } catch {
+      data = await validateTicketFallback(payload);
+    }
+    renderValidation(data);
+  } catch (error) {
+    panel.innerHTML = `<p>Erreur validation: ${error.message}</p>`;
+  }
+}
+
+const generateBtn = document.getElementById("generateBtn");
+const validateBtn = document.getElementById("validateBtn");
+
+if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
+if (validateBtn) {
+  validateBtn.addEventListener("click", validateTicket);
+  validateBtn.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    validateTicket();
+  });
+}
+
 loadLeagues();
