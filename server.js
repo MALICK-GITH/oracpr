@@ -187,14 +187,15 @@ function buildSimplePdf(lines = []) {
   const lineHeight = 16;
   const left = 48;
   const top = 800;
-  const contentLines = ["BT", "/F1 11 Tf"];
-  let y = top;
+  const maxLines = Math.max(1, Math.floor((top - 60) / lineHeight));
+  const contentLines = ["BT", "/F1 11 Tf", `${left} ${top} Td`, `${lineHeight} TL`];
+  let count = 0;
   for (const raw of safeLines.slice(0, 180)) {
+    if (count >= maxLines) break;
     const line = pdfEscape(raw);
-    contentLines.push(`${left} ${y} Td (${line}) Tj`);
-    contentLines.push(`${-left} 0 Td`);
-    y -= lineHeight;
-    if (y < 60) break;
+    contentLines.push(`(${line}) Tj`);
+    count += 1;
+    if (count < maxLines) contentLines.push("T*");
   }
   contentLines.push("ET");
   const streamContent = contentLines.join("\n");
@@ -397,7 +398,7 @@ app.post("/api/coupon/validate", async (req, res) => {
   }
 });
 
-app.post("/api/coupon/pdf", (req, res) => {
+function generateCouponPdfHandler(req, res) {
   try {
     const coupon = Array.isArray(req.body?.coupon) ? req.body.coupon : [];
     if (!coupon.length) {
@@ -421,7 +422,11 @@ app.post("/api/coupon/pdf", (req, res) => {
       error: error.message,
     });
   }
-});
+}
+
+app.post("/api/coupon/pdf", generateCouponPdfHandler);
+app.post("/api/pdf/coupon", generateCouponPdfHandler);
+app.post("/api/download/coupon", generateCouponPdfHandler);
 
 async function sendTelegramCouponHandler(req, res) {
   try {
