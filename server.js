@@ -224,7 +224,7 @@ function buildSimplePdf(lines = []) {
   return Buffer.from(pdf, "utf8");
 }
 
-function buildCouponPdfLines(payload = {}) {
+function buildCouponPdfSummaryLines(payload = {}) {
   const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
   const summary = payload.summary || {};
   const riskProfile = String(payload.riskProfile || "balanced");
@@ -246,6 +246,58 @@ function buildCouponPdfLines(payload = {}) {
     lines.push(`   Cote: ${formatOddForTelegram(pick.cote)} | Confiance: ${Number(pick.confiance) || 0}%`);
     lines.push("");
   });
+  lines.push("Aucune combinaison n'est garantie gagnante.");
+  return lines;
+}
+
+function buildCouponPdfDetailedLines(payload = {}) {
+  const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
+  const summary = payload.summary || {};
+  const riskProfile = String(payload.riskProfile || "balanced");
+  const generatedAt = new Date().toLocaleString("fr-FR");
+  const total = Number(summary.totalSelections) || coupon.length || 0;
+  const combinedOdd = Number(summary.combinedOdd) || 0;
+  const avgConfidence = Number(summary.averageConfidence) || 0;
+  const leagues = new Set(coupon.map((p) => String(p?.league || "").trim()).filter(Boolean));
+  const safeCount = coupon.filter((p) => Number(p?.confiance) >= 75).length;
+  const mediumCount = coupon.filter((p) => Number(p?.confiance) >= 60 && Number(p?.confiance) < 75).length;
+  const highRiskCount = Math.max(0, coupon.length - safeCount - mediumCount);
+
+  const lines = [
+    "FC 25 VIRTUAL PREDICTIONS - COUPON DETAILLE ANALYTIQUE",
+    "Signe: SOLITAIRE HACK",
+    `Date: ${generatedAt}`,
+    `Profil: ${riskProfile}`,
+    "",
+    "RESUME GLOBAL",
+    `Selections totales: ${total}`,
+    `Cote combinee: ${formatOddForTelegram(combinedOdd)}`,
+    `Confiance moyenne: ${avgConfidence.toFixed(1)}%`,
+    `Diversite ligues: ${leagues.size}`,
+    "",
+    "DISTRIBUTION RISQUE",
+    `Safe (>=75%): ${safeCount}`,
+    `Moyen (60% - 74.9%): ${mediumCount}`,
+    `Eleve (<60%): ${highRiskCount}`,
+    "",
+    "ANALYSE PAR SELECTION",
+  ];
+
+  coupon.forEach((pick, i) => {
+    const odd = Number(pick?.cote) || 0;
+    const conf = Number(pick?.confiance) || 0;
+    const valueIndex = odd > 0 ? Number((conf / odd).toFixed(2)) : 0;
+    const confidenceBand = conf >= 75 ? "SAFE" : conf >= 60 ? "MOYEN" : "ELEVE";
+    const source = String(pick?.source || "MIXTE");
+    lines.push(`${i + 1}. ${pick?.teamHome || "Equipe 1"} vs ${pick?.teamAway || "Equipe 2"}`);
+    lines.push(`   Ligue: ${pick?.league || "Non specifiee"}`);
+    lines.push(`   Pari: ${pick?.pari || "-"}`);
+    lines.push(`   Cote: ${formatOddForTelegram(odd)} | Confiance: ${conf.toFixed(1)}% | Bande: ${confidenceBand}`);
+    lines.push(`   Value Index (Confiance/Cote): ${valueIndex} | Source: ${source}`);
+    lines.push("");
+  });
+
+  lines.push("NOTE: Le Value Index est un indicateur interne d'equilibre rendement/fiabilite.");
   lines.push("Aucune combinaison n'est garantie gagnante.");
   return lines;
 }
@@ -408,9 +460,11 @@ function generateCouponPdfHandler(req, res) {
       });
     }
 
-    const pdfLines = buildCouponPdfLines(req.body || {});
+    const mode = String(req.body?.mode || "summary").toLowerCase();
+    const isDetailed = mode === "detailed" || mode === "detail" || mode === "analysis";
+    const pdfLines = isDetailed ? buildCouponPdfDetailedLines(req.body || {}) : buildCouponPdfSummaryLines(req.body || {});
     const pdfBuffer = buildSimplePdf(pdfLines);
-    const filename = `coupon-fc25-${Date.now()}.pdf`;
+    const filename = `coupon-fc25-${isDetailed ? "detail" : "resume"}-${Date.now()}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", String(pdfBuffer.length));
@@ -427,6 +481,12 @@ function generateCouponPdfHandler(req, res) {
 app.post("/api/coupon/pdf", generateCouponPdfHandler);
 app.post("/api/pdf/coupon", generateCouponPdfHandler);
 app.post("/api/download/coupon", generateCouponPdfHandler);
+app.post("/api/coupon/pdf/summary", (req, res) =>
+  generateCouponPdfHandler({ ...req, body: { ...(req.body || {}), mode: "summary" } }, res)
+);
+app.post("/api/coupon/pdf/detailed", (req, res) =>
+  generateCouponPdfHandler({ ...req, body: { ...(req.body || {}), mode: "detailed" } }, res)
+);
 
 async function sendTelegramCouponHandler(req, res) {
   try {

@@ -275,11 +275,13 @@ function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
   const stickyBtn = document.getElementById("sendTelegramBtnSticky");
   const pdfBtn = document.getElementById("downloadPdfBtn");
+  const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
   const pdfStickyBtn = document.getElementById("downloadPdfBtnSticky");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
   if (btn) btn.disabled = !enabled;
   if (stickyBtn) stickyBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
+  if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
 }
 
@@ -637,38 +639,76 @@ async function sendCouponToTelegram() {
   }
 }
 
-async function downloadCouponPdf() {
+async function fetchCouponPdfBlob(mode = "summary") {
+  const payload = {
+    coupon: lastCouponData.coupon,
+    summary: lastCouponData.summary || {},
+    riskProfile: lastCouponData.riskProfile || "balanced",
+    mode,
+  };
+  const endpoints =
+    mode === "detailed"
+      ? ["/api/coupon/pdf/detailed", "/api/coupon/pdf", "/api/pdf/coupon", "/api/download/coupon"]
+      : ["/api/coupon/pdf/summary", "/api/coupon/pdf", "/api/pdf/coupon", "/api/download/coupon"];
+  let blob = null;
+  let lastErr = "Erreur PDF";
+  for (const endpoint of endpoints) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      blob = await res.blob();
+      break;
+    }
+    const text = await res.text();
+    if (String(text).includes("Route API introuvable")) {
+      lastErr = "Serveur ancien actif. Redemarre npm start puis recharge la page.";
+    } else {
+      lastErr = text || `HTTP ${res.status}`;
+    }
+  }
+  if (!blob) throw new Error(lastErr);
+  return blob;
+}
+
+async function downloadCouponPdf(mode = "summary") {
   const panel = document.getElementById("validation");
   if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
     if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant PDF.</p>";
     return;
   }
   try {
-    const res = await fetch("/api/coupon/pdf", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        coupon: lastCouponData.coupon,
-        summary: lastCouponData.summary || {},
-        riskProfile: lastCouponData.riskProfile || "balanced",
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `HTTP ${res.status}`);
-    }
-    const blob = await res.blob();
+    const blob = await fetchCouponPdfBlob(mode);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `coupon-fc25-${Date.now()}.pdf`;
+    a.download = `coupon-fc25-${mode === "detailed" ? "detail" : "resume"}-${Date.now()}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    if (panel) panel.innerHTML = "<p>PDF coupon telecharge avec succes.</p>";
+    if (panel) panel.innerHTML = `<p>PDF ${mode === "detailed" ? "detaille" : "resume"} telecharge avec succes.</p>`;
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur PDF: ${error.message}</p>`;
+  }
+}
+
+async function downloadCouponPdfPack() {
+  const panel = document.getElementById("validation");
+  if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
+    if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant PDF.</p>";
+    return;
+  }
+  try {
+    await downloadCouponPdf("summary");
+    setTimeout(() => {
+      downloadCouponPdf("detailed");
+    }, 550);
+    if (panel) panel.innerHTML = "<p>Pack Multi-PDF lance: resume + detaille.</p>";
+  } catch (error) {
+    if (panel) panel.innerHTML = `<p>Erreur PDF pack: ${error.message}</p>`;
   }
 }
 
@@ -824,6 +864,7 @@ const generateMultiBtn = document.getElementById("generateMultiBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+const downloadPdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
 const generateBtnSticky = document.getElementById("generateBtnSticky");
 const validateBtnSticky = document.getElementById("validateBtnSticky");
 const sendTelegramBtnSticky = document.getElementById("sendTelegramBtnSticky");
@@ -855,10 +896,13 @@ if (sendTelegramBtnSticky) {
   sendTelegramBtnSticky.addEventListener("click", sendCouponToTelegram);
 }
 if (downloadPdfBtn) {
-  downloadPdfBtn.addEventListener("click", downloadCouponPdf);
+  downloadPdfBtn.addEventListener("click", () => downloadCouponPdf("summary"));
+}
+if (downloadPdfDetailedBtn) {
+  downloadPdfDetailedBtn.addEventListener("click", () => downloadCouponPdf("detailed"));
 }
 if (downloadPdfBtnSticky) {
-  downloadPdfBtnSticky.addEventListener("click", downloadCouponPdf);
+  downloadPdfBtnSticky.addEventListener("click", downloadCouponPdfPack);
 }
 
 loadLeagues();

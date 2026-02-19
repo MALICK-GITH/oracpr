@@ -12,9 +12,15 @@
 
 * { box-sizing: border-box; }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   font-family: "Sora", sans-serif;
   color: var(--text);
   background:
@@ -111,7 +117,8 @@ h1 {
 #generateMultiBtn,
 #validateBtn,
 #sendTelegramBtn,
-#downloadPdfBtn {
+#downloadPdfBtn,
+#downloadPdfDetailedBtn {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   padding: 0.56rem 0.82rem;
@@ -147,17 +154,24 @@ h1 {
   background: linear-gradient(90deg, #9be8ff, #d7f6ff);
 }
 
+#downloadPdfDetailedBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #b7ffef, #ddfff7);
+}
+
 #generateBtn:active,
 #generateMultiBtn:active,
 #validateBtn:active,
 #sendTelegramBtn:active,
-#downloadPdfBtn:active { transform: translateY(1px); }
+#downloadPdfBtn:active,
+#downloadPdfDetailedBtn:active { transform: translateY(1px); }
 
 #generateBtn::after,
 #generateMultiBtn::after,
 #validateBtn::after,
 #sendTelegramBtn::after,
-#downloadPdfBtn::after {
+#downloadPdfBtn::after,
+#downloadPdfDetailedBtn::after {
   content: "";
   position: absolute;
   top: -120%;
@@ -175,6 +189,11 @@ h1 {
 }
 
 #downloadPdfBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+#downloadPdfDetailedBtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -272,10 +291,15 @@ li a {
 }
 
 @media (max-width: 760px) {
-  body { padding: 0.66rem 0.66rem 4.8rem; }
+  body {
+    padding:
+      calc(0.66rem + env(safe-area-inset-top))
+      0.66rem
+      calc(5.1rem + env(safe-area-inset-bottom));
+  }
   .hero, .controls, .panel { padding: 0.8rem; border-radius: 12px; }
   .controls, .actions { grid-template-columns: 1fr; }
-  #generateBtn, #validateBtn, #sendTelegramBtn { width: 100%; }
+  #generateBtn, #generateMultiBtn, #validateBtn, #sendTelegramBtn, #downloadPdfBtn { width: 100%; }
 }
 
 @media (max-width: 420px) {
@@ -297,7 +321,7 @@ li a {
   display: none;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.45rem;
-  padding: 0.52rem;
+  padding: 0.52rem 0.52rem calc(0.52rem + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
   background: rgba(7, 13, 26, 0.95);
   backdrop-filter: blur(8px);
@@ -306,7 +330,8 @@ li a {
 .sticky-ticket-bar button {
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 10px;
-  padding: 0.6rem 0.5rem;
+  padding: 0.62rem 0.42rem;
+  font-size: 0.78rem;
   color: #051120;
   font-family: "Chakra Petch", sans-serif;
   font-weight: 700;
