@@ -115,8 +115,12 @@ h1 {
 
 #generateBtn,
 #generateMultiBtn,
+#replaceWeakBtn,
 #validateBtn,
 #sendTelegramBtn,
+#sendTelegramImageBtn,
+#downloadImageBtn,
+#downloadPdfQuickBtn,
 #downloadPdfBtn,
 #downloadPdfDetailedBtn {
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -144,9 +148,29 @@ h1 {
   background: linear-gradient(90deg, #bca8ff, #e5d9ff);
 }
 
+#replaceWeakBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #ffca8a, #ffe5bd);
+}
+
 #sendTelegramBtn {
   color: #051120;
   background: linear-gradient(90deg, #ffd27a, #ffe8b2);
+}
+
+#sendTelegramImageBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #8ad8ff, #c7edff);
+}
+
+#downloadImageBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #a8ffb7, #ddffd8);
+}
+
+#downloadPdfQuickBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #afffcb, #dfffe8);
 }
 
 #downloadPdfBtn {
@@ -161,15 +185,23 @@ h1 {
 
 #generateBtn:active,
 #generateMultiBtn:active,
+#replaceWeakBtn:active,
 #validateBtn:active,
 #sendTelegramBtn:active,
+#sendTelegramImageBtn:active,
+#downloadImageBtn:active,
+#downloadPdfQuickBtn:active,
 #downloadPdfBtn:active,
 #downloadPdfDetailedBtn:active { transform: translateY(1px); }
 
 #generateBtn::after,
 #generateMultiBtn::after,
+#replaceWeakBtn::after,
 #validateBtn::after,
 #sendTelegramBtn::after,
+#sendTelegramImageBtn::after,
+#downloadImageBtn::after,
+#downloadPdfQuickBtn::after,
 #downloadPdfBtn::after,
 #downloadPdfDetailedBtn::after {
   content: "";
@@ -188,6 +220,10 @@ h1 {
   opacity: 0.55;
 }
 
+#sendTelegramImageBtn:disabled,
+#downloadImageBtn:disabled,
+#replaceWeakBtn:disabled,
+#downloadPdfQuickBtn:disabled,
 #downloadPdfBtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -196,6 +232,60 @@ h1 {
 #downloadPdfDetailedBtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.confidence-track {
+  margin-top: 0.28rem;
+  width: min(360px, 94%);
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  position: relative;
+}
+
+.confidence-track i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  background: linear-gradient(90deg, #ff6d6d, #ffd166, #42f58d);
+}
+
+.confidence-track em {
+  position: absolute;
+  right: 8px;
+  top: -1px;
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #061126;
+  mix-blend-mode: screen;
+}
+
+.correlation-alert {
+  margin-top: 0.5rem;
+  border: 1px solid #f4b34c;
+  background: rgba(244, 179, 76, 0.14);
+  color: #ffdca4;
+  border-radius: 10px;
+  padding: 0.5rem 0.62rem;
+  font-weight: 600;
+}
+
+.coupon-image-preview {
+  margin-top: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(8, 16, 30, 0.7);
+}
+
+.coupon-image-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 .panel h3 {

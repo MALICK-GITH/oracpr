@@ -175,6 +175,71 @@ function buildTelegramCouponText(payload = {}) {
   return lines.join("\n").slice(0, 3900);
 }
 
+function escapeXml(text = "") {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildCouponImageSvg(payload = {}) {
+  const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
+  const summary = payload.summary || {};
+  const riskProfile = String(payload.riskProfile || "balanced");
+  const count = Math.max(1, Math.min(coupon.length || 1, 12));
+  const rowH = 72;
+  const headH = 150;
+  const footH = 70;
+  const width = 1200;
+  const height = headH + footH + count * rowH;
+  const generatedAt = new Date().toLocaleString("fr-FR");
+
+  const rows = coupon.slice(0, 12).map((pick, i) => {
+    const y = headH + i * rowH;
+    return `
+      <rect x="36" y="${y}" width="${width - 72}" height="56" rx="12" fill="rgba(255,255,255,0.06)" />
+      <text x="52" y="${y + 22}" fill="#f5fbff" font-size="18" font-weight="700">${i + 1}. ${escapeXml(
+      `${pick.teamHome || "Equipe 1"} vs ${pick.teamAway || "Equipe 2"}`
+    )}</text>
+      <text x="52" y="${y + 42}" fill="#a9c6df" font-size="14">Ligue: ${escapeXml(pick.league || "Non specifiee")} | ${
+      escapeXml(pick.pari || "-")
+    }</text>
+      <text x="${width - 280}" y="${y + 22}" fill="#7dffcf" font-size="16" font-weight="700">Cote ${formatOddForTelegram(
+      pick.cote
+    )}</text>
+      <text x="${width - 280}" y="${y + 42}" fill="#ffd98a" font-size="14">Confiance ${Number(pick.confiance) || 0}%</text>
+    `;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#061830"/>
+      <stop offset="60%" stop-color="#0e2d57"/>
+      <stop offset="100%" stop-color="#123663"/>
+    </linearGradient>
+    <linearGradient id="head" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#16e3ff"/>
+      <stop offset="100%" stop-color="#7dffcf"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
+  <rect x="28" y="22" width="${width - 56}" height="${headH - 34}" rx="18" fill="rgba(2,10,24,0.55)" stroke="rgba(125,255,207,0.35)" />
+  <text x="48" y="64" fill="url(#head)" font-size="32" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 COUPON IMAGE</text>
+  <text x="48" y="92" fill="#d9ecff" font-size="18" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
+    riskProfile
+  )} | Selections ${Number(summary.totalSelections) || coupon.length} | Cote ${formatOddForTelegram(summary.combinedOdd)}</text>
+  <text x="48" y="118" fill="#b3cee6" font-size="14" font-family="Arial, Helvetica, sans-serif">Genere le ${escapeXml(
+    generatedAt
+  )}</text>
+  ${rows.join("\n")}
+  <text x="48" y="${height - 28}" fill="#cfe6ff" font-size="15" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK | Aucune combinaison n'est garantie gagnante.</text>
+</svg>`;
+}
+
 function pdfEscape(text = "") {
   return String(text)
     .replace(/\\/g, "\\\\")
@@ -246,6 +311,30 @@ function buildCouponPdfSummaryLines(payload = {}) {
     lines.push(`   Cote: ${formatOddForTelegram(pick.cote)} | Confiance: ${Number(pick.confiance) || 0}%`);
     lines.push("");
   });
+  lines.push("Aucune combinaison n'est garantie gagnante.");
+  return lines;
+}
+
+function buildCouponPdfQuickLines(payload = {}) {
+  const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
+  const summary = payload.summary || {};
+  const generatedAt = new Date().toLocaleString("fr-FR");
+  const lines = [
+    "FC 25 VIRTUAL PREDICTIONS - PDF ULTRA-COURT",
+    `Date: ${generatedAt}`,
+    `Selections: ${Number(summary.totalSelections) || coupon.length}`,
+    `Cote combinee: ${formatOddForTelegram(summary.combinedOdd)}`,
+    "",
+  ];
+  coupon.slice(0, 14).forEach((pick, i) => {
+    lines.push(
+      `${i + 1}) ${pick?.teamHome || "Equipe 1"} vs ${pick?.teamAway || "Equipe 2"} | ${pick?.pari || "-"} | ${formatOddForTelegram(
+        pick?.cote
+      )}`
+    );
+  });
+  lines.push("");
+  lines.push("Signe: SOLITAIRE HACK");
   lines.push("Aucune combinaison n'est garantie gagnante.");
   return lines;
 }
@@ -492,9 +581,14 @@ function generateCouponPdfHandler(req, res) {
 
     const mode = String(req.body?.mode || "summary").toLowerCase();
     const isDetailed = mode === "detailed" || mode === "detail" || mode === "analysis";
-    const pdfLines = isDetailed ? buildCouponPdfDetailedLines(req.body || {}) : buildCouponPdfSummaryLines(req.body || {});
+    const isQuick = mode === "quick" || mode === "short" || mode === "ultra";
+    const pdfLines = isDetailed
+      ? buildCouponPdfDetailedLines(req.body || {})
+      : isQuick
+      ? buildCouponPdfQuickLines(req.body || {})
+      : buildCouponPdfSummaryLines(req.body || {});
     const pdfBuffer = buildSimplePdf(pdfLines);
-    const filename = `coupon-fc25-${isDetailed ? "detail" : "resume"}-${Date.now()}.pdf`;
+    const filename = `coupon-fc25-${isDetailed ? "detail" : isQuick ? "rapide" : "resume"}-${Date.now()}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.setHeader("Content-Length", String(pdfBuffer.length));
@@ -503,6 +597,36 @@ function generateCouponPdfHandler(req, res) {
     return res.status(500).json({
       success: false,
       message: "Impossible de generer le PDF coupon.",
+      error: error.message,
+    });
+  }
+}
+
+function generateCouponImageHandler(req, res) {
+  try {
+    const coupon = Array.isArray(req.body?.coupon) ? req.body.coupon : [];
+    if (!coupon.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon vide. Impossible de generer l'image.",
+      });
+    }
+    const started = getStartedSelections(coupon);
+    if (started.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Image bloquee: le coupon contient des matchs deja demarres.",
+      });
+    }
+    const svg = buildCouponImageSvg(req.body || {});
+    const filename = `coupon-fc25-image-${Date.now()}.svg`;
+    res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    return res.send(svg);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de generer l'image coupon.",
       error: error.message,
     });
   }
@@ -517,6 +641,11 @@ app.post("/api/coupon/pdf/summary", (req, res) =>
 app.post("/api/coupon/pdf/detailed", (req, res) =>
   generateCouponPdfHandler({ ...req, body: { ...(req.body || {}), mode: "detailed" } }, res)
 );
+app.post("/api/coupon/pdf/quick", (req, res) =>
+  generateCouponPdfHandler({ ...req, body: { ...(req.body || {}), mode: "quick" } }, res)
+);
+app.post("/api/coupon/image", generateCouponImageHandler);
+app.post("/api/coupon/image/svg", generateCouponImageHandler);
 
 async function sendTelegramCouponHandler(req, res) {
   try {
@@ -574,15 +703,30 @@ async function sendTelegramCouponHandler(req, res) {
       }
     }
 
-    const telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        disable_web_page_preview: true,
-      }),
-    });
+    const sendImage = Boolean(req.body?.sendImage);
+    let telegramRes;
+    if (sendImage) {
+      const svg = buildCouponImageSvg(req.body || {});
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      form.append("caption", "Coupon image - FC 25 Virtual Predictions | Signe: SOLITAIRE HACK");
+      form.append("document", new Blob([svg], { type: "image/svg+xml" }), `coupon-fc25-${Date.now()}.svg`);
+      telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+        method: "POST",
+        body: form,
+      });
+    } else {
+      telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text,
+          disable_web_page_preview: true,
+        }),
+      });
+    }
+
     const telegramData = await telegramRes.json();
     if (!telegramRes.ok || !telegramData?.ok) {
       return res.status(502).json({
@@ -594,7 +738,7 @@ async function sendTelegramCouponHandler(req, res) {
 
     res.json({
       success: true,
-      message: "Coupon envoye sur Telegram.",
+      message: sendImage ? "Coupon image envoye sur Telegram." : "Coupon envoye sur Telegram.",
       telegramMessageId: telegramData?.result?.message_id || null,
     });
   } catch (error) {

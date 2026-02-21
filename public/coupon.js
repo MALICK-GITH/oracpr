@@ -281,13 +281,23 @@ function setResultHtml(html) {
 
 function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
+  const imageTelegramBtn = document.getElementById("sendTelegramImageBtn");
   const stickyBtn = document.getElementById("sendTelegramBtnSticky");
+  const stickyImageBtn = document.getElementById("sendTelegramImageBtnSticky");
+  const replaceWeakBtn = document.getElementById("replaceWeakBtn");
+  const imageBtn = document.getElementById("downloadImageBtn");
+  const pdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
   const pdfBtn = document.getElementById("downloadPdfBtn");
   const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
   const pdfStickyBtn = document.getElementById("downloadPdfBtnSticky");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
   if (btn) btn.disabled = !enabled;
+  if (imageTelegramBtn) imageTelegramBtn.disabled = !enabled;
   if (stickyBtn) stickyBtn.disabled = !enabled;
+  if (stickyImageBtn) stickyImageBtn.disabled = !enabled;
+  if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled;
+  if (imageBtn) imageBtn.disabled = !enabled;
+  if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
@@ -335,6 +345,9 @@ function renderCoupon(data) {
         <span>Ligue: ${p.league || "Non specifiee"}</span>
         <span>${p.pari}</span>
         <span>Cote ${formatOdd(p.cote)} | Confiance ${p.confiance}%</span>
+        <div class="confidence-track"><i style="width:${Math.max(4, Math.min(100, Number(p.confiance) || 0))}%"></i><em>${Number(
+          p.confiance || 0
+        ).toFixed(0)}%</em></div>
         <a href="/match.html?id=${encodeURIComponent(p.matchId)}">Voir detail match</a>
       </li>
     `
@@ -359,6 +372,11 @@ function renderCoupon(data) {
       <span>Mise ${stake.toFixed(0)} => Retour ${pay.payout.toFixed(2)} | Net ${pay.net.toFixed(2)}</span>
     </div>
     <ol>${items}</ol>
+    ${
+      insights.correlationRisk >= 55
+        ? `<p class="correlation-alert">Alerte correlation: ${insights.correlationRisk}% (plusieurs picks proches). Utilise "Remplacer Pick Faible" avant validation.</p>`
+        : ""
+    }
     <p class="warning">${data.warning || ""}</p>
   `);
   const validationPanel = document.getElementById("validation");
@@ -550,14 +568,14 @@ function renderValidation(report) {
   });
 }
 
-async function sendCouponToTelegram() {
+async function sendCouponToTelegram(sendImage = false) {
   const panel = document.getElementById("validation");
   if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
     if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant envoi Telegram.</p>";
     return;
   }
 
-  if (panel) panel.innerHTML = "<p>Envoi Telegram en cours...</p>";
+  if (panel) panel.innerHTML = `<p>Envoi Telegram ${sendImage ? "image" : "texte"} en cours...</p>`;
 
   try {
     const adapted = await enforceTicketShield("envoi Telegram");
@@ -566,6 +584,7 @@ async function sendCouponToTelegram() {
       coupon: lastCouponData.coupon,
       summary: lastCouponData.summary || {},
       riskProfile: lastCouponData.riskProfile || "balanced",
+      sendImage,
       ticketShield: {
         driftThresholdPercent: getDriftThreshold(),
         replacedSelections: adapted.replaced,
@@ -589,14 +608,14 @@ async function sendCouponToTelegram() {
       panel.innerHTML = `
         <h3>Envoi Telegram</h3>
         <p class="ticket-status ticket-ok">ENVOI REUSSI</p>
-        <p>${data.message || "Coupon envoye sur Telegram."}</p>
+        <p>${data.message || `Coupon ${sendImage ? "image" : "texte"} envoye sur Telegram.`}</p>
         <p>Ticket Shield IA: drift ${getDriftThreshold()}% | Remplacements: ${adapted.replaced}</p>
       `;
     }
     addHistoryEntry({
       type: "telegram",
       at: new Date().toISOString(),
-      note: `Coupon envoye Telegram | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      note: `Coupon ${sendImage ? "image" : "texte"} envoye Telegram | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur Telegram: ${error.message}</p>`;
@@ -623,6 +642,8 @@ async function fetchCouponPdfBlob(mode = "summary") {
   const endpoints =
     mode === "detailed"
       ? ["/api/coupon/pdf/detailed", "/api/coupon/pdf", "/api/pdf/coupon", "/api/download/coupon"]
+      : mode === "quick"
+      ? ["/api/coupon/pdf/quick", "/api/coupon/pdf/summary", "/api/coupon/pdf", "/api/pdf/coupon", "/api/download/coupon"]
       : ["/api/coupon/pdf/summary", "/api/coupon/pdf", "/api/pdf/coupon", "/api/download/coupon"];
   let blob = null;
   let lastErr = "Erreur PDF";
@@ -659,16 +680,18 @@ async function downloadCouponPdf(mode = "summary") {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `coupon-fc25-${mode === "detailed" ? "detail" : "resume"}-${Date.now()}.pdf`;
+    const suffix = mode === "detailed" ? "detail" : mode === "quick" ? "rapide" : "resume";
+    a.download = `coupon-fc25-${suffix}-${Date.now()}.pdf`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    if (panel) panel.innerHTML = `<p>PDF ${mode === "detailed" ? "detaille" : "resume"} telecharge avec succes.</p>`;
+    const label = mode === "detailed" ? "detaille" : mode === "quick" ? "ultra-court" : "resume";
+    if (panel) panel.innerHTML = `<p>PDF ${label} telecharge avec succes.</p>`;
     addHistoryEntry({
       type: "pdf",
       at: new Date().toISOString(),
-      note: `Export PDF ${mode === "detailed" ? "detaille" : "resume"} | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      note: `Export PDF ${label} | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur PDF: ${error.message}</p>`;
@@ -689,6 +712,64 @@ async function downloadCouponPdfPack() {
     if (panel) panel.innerHTML = "<p>Pack Multi-PDF lance: resume + detaille.</p>";
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur PDF pack: ${error.message}</p>`;
+  }
+}
+
+async function fetchCouponImageBlob() {
+  const insights = computeCouponInsights(lastCouponData?.coupon || [], lastCouponData?.riskProfile || "balanced");
+  const payload = {
+    coupon: lastCouponData.coupon,
+    summary: lastCouponData.summary || {},
+    riskProfile: lastCouponData.riskProfile || "balanced",
+    insights,
+  };
+  const endpoints = ["/api/coupon/image", "/api/coupon/image/svg"];
+  let blob = null;
+  let lastErr = "Erreur image coupon";
+  for (const endpoint of endpoints) {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      blob = await res.blob();
+      break;
+    }
+    const text = await res.text();
+    lastErr = text || `HTTP ${res.status}`;
+  }
+  if (!blob) throw new Error(lastErr);
+  return blob;
+}
+
+async function downloadCouponImage() {
+  const panel = document.getElementById("validation");
+  if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
+    if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant image.</p>";
+    return;
+  }
+  try {
+    await enforceTicketShield("export image");
+    const blob = await fetchCouponImageBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `coupon-fc25-image-${Date.now()}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    if (panel) {
+      panel.innerHTML = `<p>Image coupon telechargee.</p><div class="coupon-image-preview"><img src="${url}" alt="Apercu coupon image"/></div>`;
+    }
+    addHistoryEntry({
+      type: "pdf",
+      at: new Date().toISOString(),
+      note: `Export image coupon | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+    });
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch (error) {
+    if (panel) panel.innerHTML = `<p>Erreur image: ${error.message}</p>`;
   }
 }
 
@@ -864,6 +945,13 @@ async function validateTicket() {
   panel.innerHTML = "<p>Validation ticket en cours...</p>";
 
   try {
+    const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+    if (insights.correlationRisk >= 55) {
+      panel.innerHTML =
+        `<p class="correlation-alert">Alerte: correlation elevee (${insights.correlationRisk}%). ` +
+        `Validation continuee, mais recommande: clique "Remplacer Pick Faible".</p>` +
+        "<p>Validation ticket en cours...</p>";
+    }
     const payload = {
       driftThresholdPercent: getDriftThreshold(),
       selections: lastCouponData.coupon.map((x) => ({
@@ -880,19 +968,84 @@ async function validateTicket() {
   }
 }
 
+async function replaceWeakSelection() {
+  const panel = document.getElementById("validation");
+  if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
+    if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant remplacement.</p>";
+    return;
+  }
+  if (panel) panel.innerHTML = "<p>Recherche du pick le plus faible...</p>";
+  try {
+    const picks = [...lastCouponData.coupon];
+    const targetIndex = picks
+      .map((p, i) => ({ i, conf: Number(p?.confiance || 0), odd: Number(p?.cote || 99) }))
+      .sort((a, b) => a.conf - b.conf || b.odd - a.odd)[0]?.i;
+    if (!Number.isInteger(targetIndex)) throw new Error("Aucune selection a optimiser.");
+    const target = picks[targetIndex];
+
+    if (!lastCouponBackups.size) {
+      lastCouponBackups = await buildBackupPlan(picks, lastCouponData.riskProfile || "balanced");
+    }
+
+    let replacement = null;
+    try {
+      const res = await fetch(`/api/matches/${encodeURIComponent(target.matchId)}/details`, { cache: "no-store" });
+      const details = await readJsonSafe(res);
+      if (res.ok && details?.success) {
+        const rec = pickOptionFromDetails(details, lastCouponData.riskProfile || "balanced");
+        if (rec && String(rec.pari) !== String(target.pari)) {
+          replacement = { pari: rec.pari, cote: Number(rec.cote), confiance: Number(rec.confiance || target.confiance), source: rec.source };
+        }
+      }
+    } catch {}
+
+    if (!replacement) {
+      const b = lastCouponBackups.get(String(target.matchId));
+      if (b && String(b.pari) !== String(target.pari)) {
+        replacement = { pari: b.pari, cote: Number(b.odd), confiance: Number(b.confidence || target.confiance), source: b.source || "PLAN_B" };
+      }
+    }
+
+    if (!replacement) throw new Error("Aucun remplacement fiable trouve pour ce pick.");
+
+    picks[targetIndex] = { ...target, ...replacement };
+    lastCouponData = {
+      ...lastCouponData,
+      coupon: picks,
+      summary: createCouponSummary(picks),
+      warning: `Pick faible remplace: ${target.teamHome} vs ${target.teamAway} -> ${replacement.pari}`,
+    };
+    renderCoupon(lastCouponData);
+    addHistoryEntry({
+      type: "coupon",
+      at: new Date().toISOString(),
+      note: `Remplacement faible: ${target.pari} -> ${replacement.pari} (${target.matchId})`,
+    });
+    if (panel) panel.innerHTML = "<p>Pick faible remplace avec succes.</p>";
+  } catch (error) {
+    if (panel) panel.innerHTML = `<p>Erreur remplacement: ${error.message}</p>`;
+  }
+}
+
 const generateBtn = document.getElementById("generateBtn");
 const generateMultiBtn = document.getElementById("generateMultiBtn");
+const replaceWeakBtn = document.getElementById("replaceWeakBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
+const sendTelegramImageBtn = document.getElementById("sendTelegramImageBtn");
+const downloadImageBtn = document.getElementById("downloadImageBtn");
+const downloadPdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const downloadPdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
 const generateBtnSticky = document.getElementById("generateBtnSticky");
 const validateBtnSticky = document.getElementById("validateBtnSticky");
 const sendTelegramBtnSticky = document.getElementById("sendTelegramBtnSticky");
+const sendTelegramImageBtnSticky = document.getElementById("sendTelegramImageBtnSticky");
 const downloadPdfBtnSticky = document.getElementById("downloadPdfBtnSticky");
 
 if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
 if (generateMultiBtn) generateMultiBtn.addEventListener("click", renderMultiStrategy);
+if (replaceWeakBtn) replaceWeakBtn.addEventListener("click", replaceWeakSelection);
 if (validateBtn) {
   validateBtn.addEventListener("click", validateTicket);
   validateBtn.addEventListener("touchend", (e) => {
@@ -901,11 +1054,17 @@ if (validateBtn) {
   });
 }
 if (sendTelegramBtn) {
-  sendTelegramBtn.addEventListener("click", sendCouponToTelegram);
+  sendTelegramBtn.addEventListener("click", () => sendCouponToTelegram(false));
   sendTelegramBtn.addEventListener("touchend", (e) => {
     e.preventDefault();
-    sendCouponToTelegram();
+    sendCouponToTelegram(false);
   });
+}
+if (sendTelegramImageBtn) {
+  sendTelegramImageBtn.addEventListener("click", () => sendCouponToTelegram(true));
+}
+if (downloadImageBtn) {
+  downloadImageBtn.addEventListener("click", downloadCouponImage);
 }
 if (generateBtnSticky) {
   generateBtnSticky.addEventListener("click", generateCoupon);
@@ -914,10 +1073,16 @@ if (validateBtnSticky) {
   validateBtnSticky.addEventListener("click", validateTicket);
 }
 if (sendTelegramBtnSticky) {
-  sendTelegramBtnSticky.addEventListener("click", sendCouponToTelegram);
+  sendTelegramBtnSticky.addEventListener("click", () => sendCouponToTelegram(false));
+}
+if (sendTelegramImageBtnSticky) {
+  sendTelegramImageBtnSticky.addEventListener("click", () => sendCouponToTelegram(true));
 }
 if (downloadPdfBtn) {
   downloadPdfBtn.addEventListener("click", () => downloadCouponPdf("summary"));
+}
+if (downloadPdfQuickBtn) {
+  downloadPdfQuickBtn.addEventListener("click", () => downloadCouponPdf("quick"));
 }
 if (downloadPdfDetailedBtn) {
   downloadPdfDetailedBtn.addEventListener("click", () => downloadCouponPdf("detailed"));
