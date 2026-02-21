@@ -121,6 +121,7 @@ h1 {
 #sendPackBtn,
 #sendTelegramImageBtn,
 #downloadImageBtn,
+#downloadStoryBtn,
 #downloadPdfQuickBtn,
 #downloadPdfBtn,
 #downloadPdfDetailedBtn {
@@ -174,6 +175,11 @@ h1 {
   background: linear-gradient(90deg, #a8ffb7, #ddffd8);
 }
 
+#downloadStoryBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #ffd2f2, #ffdff8);
+}
+
 #downloadPdfQuickBtn {
   color: #051120;
   background: linear-gradient(90deg, #afffcb, #dfffe8);
@@ -197,6 +203,7 @@ h1 {
 #sendPackBtn:active,
 #sendTelegramImageBtn:active,
 #downloadImageBtn:active,
+#downloadStoryBtn:active,
 #downloadPdfQuickBtn:active,
 #downloadPdfBtn:active,
 #downloadPdfDetailedBtn:active { transform: translateY(1px); }
@@ -209,6 +216,7 @@ h1 {
 #sendPackBtn::after,
 #sendTelegramImageBtn::after,
 #downloadImageBtn::after,
+#downloadStoryBtn::after,
 #downloadPdfQuickBtn::after,
 #downloadPdfBtn::after,
 #downloadPdfDetailedBtn::after {
@@ -231,6 +239,7 @@ h1 {
 #sendPackBtn:disabled,
 #sendTelegramImageBtn:disabled,
 #downloadImageBtn:disabled,
+#downloadStoryBtn:disabled,
 #replaceWeakBtn:disabled,
 #downloadPdfQuickBtn:disabled,
 #downloadPdfBtn:disabled {
@@ -398,7 +407,7 @@ li a {
   }
   .hero, .controls, .panel { padding: 0.8rem; border-radius: 12px; }
   .controls, .actions { grid-template-columns: 1fr; }
-  #generateBtn, #generateMultiBtn, #validateBtn, #sendTelegramBtn, #sendPackBtn, #downloadPdfBtn { width: 100%; }
+  #generateBtn, #generateMultiBtn, #validateBtn, #sendTelegramBtn, #sendPackBtn, #downloadPdfBtn, #downloadStoryBtn { width: 100%; }
 }
 
 @media (max-width: 420px) {

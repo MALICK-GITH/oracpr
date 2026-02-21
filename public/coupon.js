@@ -287,6 +287,7 @@ function updateSendButtonState() {
   const stickyImageBtn = document.getElementById("sendTelegramImageBtnSticky");
   const replaceWeakBtn = document.getElementById("replaceWeakBtn");
   const imageBtn = document.getElementById("downloadImageBtn");
+  const storyBtn = document.getElementById("downloadStoryBtn");
   const pdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
   const pdfBtn = document.getElementById("downloadPdfBtn");
   const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
@@ -299,6 +300,7 @@ function updateSendButtonState() {
   if (stickyImageBtn) stickyImageBtn.disabled = !enabled;
   if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled;
   if (imageBtn) imageBtn.disabled = !enabled;
+  if (storyBtn) storyBtn.disabled = !enabled;
   if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
@@ -764,15 +766,19 @@ async function downloadCouponPdfPack() {
   }
 }
 
-async function fetchCouponImageBlob() {
+async function fetchCouponImageBlob(mode = "default") {
   const insights = computeCouponInsights(lastCouponData?.coupon || [], lastCouponData?.riskProfile || "balanced");
   const payload = {
     coupon: lastCouponData.coupon,
     summary: lastCouponData.summary || {},
     riskProfile: lastCouponData.riskProfile || "balanced",
     insights,
+    mode,
   };
-  const endpoints = ["/api/coupon/image", "/api/coupon/image/svg"];
+  const endpoints =
+    mode === "story"
+      ? ["/api/coupon/image/story", "/api/coupon/image", "/api/coupon/image/svg"]
+      : ["/api/coupon/image", "/api/coupon/image/svg"];
   let blob = null;
   let lastErr = "Erreur image coupon";
   for (const endpoint of endpoints) {
@@ -792,29 +798,29 @@ async function fetchCouponImageBlob() {
   return blob;
 }
 
-async function downloadCouponImage() {
+async function downloadCouponImage(mode = "default") {
   const panel = document.getElementById("validation");
   if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
     if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant image.</p>";
     return;
   }
   try {
-    await enforceTicketShield("export image");
-    const blob = await fetchCouponImageBlob();
+    await enforceTicketShield(mode === "story" ? "export story" : "export image");
+    const blob = await fetchCouponImageBlob(mode);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `coupon-fc25-image-${Date.now()}.svg`;
+    a.download = `coupon-fc25-${mode === "story" ? "story" : "image"}-${Date.now()}.svg`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     if (panel) {
-      panel.innerHTML = `<p>Image coupon telechargee.</p><div class="coupon-image-preview"><img src="${url}" alt="Apercu coupon image"/></div>`;
+      panel.innerHTML = `<p>${mode === "story" ? "Snap Story" : "Image coupon"} telecharge${mode === "story" ? "" : "e"}.</p><div class="coupon-image-preview"><img src="${url}" alt="Apercu coupon image"/></div>`;
     }
     addHistoryEntry({
       type: "pdf",
       at: new Date().toISOString(),
-      note: `Export image coupon | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      note: `Export ${mode === "story" ? "snap story" : "image coupon"} | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   } catch (error) {
@@ -1084,6 +1090,7 @@ const sendTelegramBtn = document.getElementById("sendTelegramBtn");
 const sendPackBtn = document.getElementById("sendPackBtn");
 const sendTelegramImageBtn = document.getElementById("sendTelegramImageBtn");
 const downloadImageBtn = document.getElementById("downloadImageBtn");
+const downloadStoryBtn = document.getElementById("downloadStoryBtn");
 const downloadPdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const downloadPdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
@@ -1117,7 +1124,10 @@ if (sendTelegramImageBtn) {
   sendTelegramImageBtn.addEventListener("click", () => sendCouponToTelegram(true));
 }
 if (downloadImageBtn) {
-  downloadImageBtn.addEventListener("click", downloadCouponImage);
+  downloadImageBtn.addEventListener("click", () => downloadCouponImage("default"));
+}
+if (downloadStoryBtn) {
+  downloadStoryBtn.addEventListener("click", () => downloadCouponImage("story"));
 }
 if (generateBtnSticky) {
   generateBtnSticky.addEventListener("click", generateCoupon);

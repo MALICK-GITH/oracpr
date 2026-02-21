@@ -275,6 +275,69 @@ function buildCouponImageSvg(payload = {}) {
 </svg>`;
 }
 
+function buildCouponStorySvg(payload = {}) {
+  const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
+  const summary = payload.summary || {};
+  const riskProfile = String(payload.riskProfile || "balanced");
+  const picks = coupon.slice(0, 5);
+  const width = 1080;
+  const height = 1920;
+  const generatedAt = new Date().toLocaleString("fr-FR");
+  const cardW = width - 88;
+  const cardH = 256;
+  const startY = 280;
+  const gap = 24;
+
+  const cards = picks.map((pick, i) => {
+    const y = startY + i * (cardH + gap);
+    const home = escapeXml(pick.teamHome || "Equipe 1");
+    const away = escapeXml(pick.teamAway || "Equipe 2");
+    const league = escapeXml(pick.league || "Ligue virtuelle");
+    const pari = escapeXml(pick.pari || "-");
+    const odd = formatOddForTelegram(pick.cote);
+    const conf = Number(pick.confiance) || 0;
+    const risk = conf >= 75 ? "SAFE" : conf >= 60 ? "MODERE" : "RISQUE";
+    return `
+      <g transform="translate(44, ${y})">
+        <rect x="0" y="0" width="${cardW}" height="${cardH}" rx="28" fill="rgba(8,18,34,0.90)" stroke="rgba(138,216,255,0.36)" />
+        <text x="28" y="42" fill="#b8dbff" font-size="26" font-weight="700">${i + 1}. ${league}</text>
+        <text x="${cardW / 2}" y="112" text-anchor="middle" fill="#f5fbff" font-size="42" font-weight="800">${home} VS ${away}</text>
+        <rect x="24" y="146" width="${cardW - 48}" height="78" rx="18" fill="rgba(14,25,48,0.95)" stroke="rgba(66,245,108,0.26)" />
+        <text x="40" y="176" fill="#d2e9ff" font-size="24">Pari: ${pari}</text>
+        <text x="40" y="206" fill="#7dffcf" font-size="26" font-weight="800">Cote ${odd}</text>
+        <text x="${cardW - 40}" y="206" text-anchor="end" fill="#ffd98a" font-size="24" font-weight="700">${conf}% | ${risk}</text>
+      </g>
+    `;
+  });
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="bgStory" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#071a32"/>
+      <stop offset="50%" stop-color="#0d2d58"/>
+      <stop offset="100%" stop-color="#18305b"/>
+    </linearGradient>
+    <linearGradient id="headStory" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#16e3ff"/>
+      <stop offset="100%" stop-color="#7dffcf"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bgStory)"/>
+  <rect x="36" y="58" width="${width - 72}" height="186" rx="30" fill="rgba(2,10,24,0.55)" stroke="rgba(125,255,207,0.35)" />
+  <text x="62" y="124" fill="url(#headStory)" font-size="54" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 SNAP STORY</text>
+  <text x="62" y="168" fill="#d9ecff" font-size="30" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
+    riskProfile
+  )} | Selections ${Number(summary.totalSelections) || coupon.length}</text>
+  <text x="62" y="204" fill="#b3cee6" font-size="22" font-family="Arial, Helvetica, sans-serif">Cote ${formatOddForTelegram(
+    summary.combinedOdd
+  )} | ${escapeXml(generatedAt)}</text>
+  ${cards.join("\n")}
+  <text x="62" y="${height - 74}" fill="#cfe6ff" font-size="24" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK</text>
+  <text x="62" y="${height - 40}" fill="#cfe6ff" font-size="18" font-family="Arial, Helvetica, sans-serif">Aucune combinaison n'est garantie gagnante.</text>
+</svg>`;
+}
+
 function pdfEscape(text = "") {
   return String(text)
     .replace(/\\/g, "\\\\")
@@ -653,8 +716,10 @@ function generateCouponImageHandler(req, res) {
         message: "Image bloquee: le coupon contient des matchs deja demarres.",
       });
     }
-    const svg = buildCouponImageSvg(req.body || {});
-    const filename = `coupon-fc25-image-${Date.now()}.svg`;
+    const mode = String(req.body?.mode || "default").toLowerCase();
+    const isStory = mode === "story" || mode === "snap";
+    const svg = isStory ? buildCouponStorySvg(req.body || {}) : buildCouponImageSvg(req.body || {});
+    const filename = `coupon-fc25-${isStory ? "story" : "image"}-${Date.now()}.svg`;
     res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.send(svg);
@@ -730,6 +795,9 @@ app.post("/api/coupon/pdf/quick", (req, res) =>
 );
 app.post("/api/coupon/image", generateCouponImageHandler);
 app.post("/api/coupon/image/svg", generateCouponImageHandler);
+app.post("/api/coupon/image/story", (req, res) =>
+  generateCouponImageHandler({ ...req, body: { ...(req.body || {}), mode: "story" } }, res)
+);
 
 async function sendTelegramCouponHandler(req, res) {
   try {
