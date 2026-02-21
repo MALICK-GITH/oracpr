@@ -1,6 +1,7 @@
 const API_URL =
   "https://1xbet.com/service-api/LiveFeed/Get1x2_VZip?sports=85&count=40&lng=fr&gr=285&mode=4&country=96&getEmpty=true&virtualSports=true&noFilterBlockEvent=true";
 const { genererPredictionUnifiee, detectBetType } = require("./unifiedPrediction");
+const { evaluateMatch } = require("./extraPowerFilter");
 
 const PENALTY_KEYWORDS = [
   "penalty",
@@ -16,6 +17,10 @@ function normalizeText(value) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
 }
 
 function toMatchText(event) {
@@ -192,6 +197,73 @@ function simplifyEvent(event) {
   };
 }
 
+function impliedOneXTwoPercents(odds = {}) {
+  const h = Number(odds?.home);
+  const d = Number(odds?.draw);
+  const a = Number(odds?.away);
+  if (![h, d, a].every((x) => Number.isFinite(x) && x > 1)) {
+    return { home: 0, draw: 0, away: 0 };
+  }
+  const ih = 1 / h;
+  const id = 1 / d;
+  const ia = 1 / a;
+  const sum = ih + id + ia || 1;
+  return {
+    home: (ih / sum) * 100,
+    draw: (id / sum) * 100,
+    away: (ia / sum) * 100,
+  };
+}
+
+function parseConsensusBots(prediction) {
+  const raw = String(prediction?.maitre?.analyse_bots?.consensus || "");
+  const match = raw.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return 0;
+  return Number(match[1]) || 0;
+}
+
+function inferPickSide(pari, teamHome, teamAway) {
+  const p = normalizeText(pari || "");
+  const home = normalizeText(teamHome || "");
+  const away = normalizeText(teamAway || "");
+  if (away && p.includes(away)) return "AWAY";
+  if (home && p.includes(home)) return "HOME";
+  if (p.startsWith("2 ") || p.includes(" victoire ") || p.includes("x2")) return "AWAY";
+  if (p.startsWith("1 ") || p.includes("1x")) return "HOME";
+  return "HOME";
+}
+
+function syntheticFluxSeries(base, momentum, swings = [0, 2, 4, 6, 4, 2, 0, -1, 1, 2]) {
+  return swings.map((s, i) => clamp(base + momentum * (i / (swings.length - 1)) + s, 0, 100));
+}
+
+function buildExtraFilterInput(details, pickedPari) {
+  const action = String(details?.prediction?.maitre?.decision_finale?.action || "");
+  const confidence = Number(details?.prediction?.maitre?.decision_finale?.confiance_numerique || 0);
+  const consensusBots = parseConsensusBots(details?.prediction);
+  const implied = impliedOneXTwoPercents(details?.match?.odds1x2 || {});
+  const ctx = details?.match?.context || {};
+  const s1 = Number(ctx.score1 || 0);
+  const s2 = Number(ctx.score2 || 0);
+  const minute = Number(ctx.minute || 0);
+
+  const homeMomentum = clamp((s1 - s2) * 3 + (minute > 45 ? 2 : 0), -12, 12);
+  const awayMomentum = clamp((s2 - s1) * 3 + (minute > 45 ? 2 : 0), -12, 12);
+  const drawBase = clamp(implied.draw - Math.abs(s1 - s2) * 2 - (minute > 70 ? 4 : 0), 3, 45);
+
+  return {
+    confidence,
+    consensusBots,
+    winHome: Number(implied.home.toFixed(1)),
+    winAway: Number(implied.away.toFixed(1)),
+    action,
+    pickSide: inferPickSide(pickedPari, details?.match?.teamHome, details?.match?.teamAway),
+    homeFlux: syntheticFluxSeries(implied.home, homeMomentum),
+    awayFlux: syntheticFluxSeries(implied.away, awayMomentum),
+    zoneNull: syntheticFluxSeries(drawBase, -Math.abs(homeMomentum - awayMomentum) / 2, [0, 1, 1, 0, -1, -2, -1, 0, 1, 0]),
+  };
+}
+
 function isStrictUpcomingEvent(event, nowSec) {
   const start = Number(event?.S);
   if (!Number.isFinite(start) || start <= nowSec) return false;
@@ -288,8 +360,14 @@ async function getMatchPredictionDetails(matchId) {
   if (!found) {
     throw new Error("Match introuvable dans le flux actuel.");
   }
-
-  return buildMatchPredictionDetails(found);
+  const details = buildMatchPredictionDetails(found);
+  const pickedPari = details?.prediction?.maitre?.decision_finale?.pari_choisi || "";
+  const evalInput = buildExtraFilterInput(details, pickedPari);
+  const extraFilter = evaluateMatch(evalInput, { totalMatches: events.length }, { minMatches: 50 });
+  return {
+    ...details,
+    extraPowerFilter: extraFilter,
+  };
 }
 
 function buildMatchPredictionDetails(event) {
@@ -387,12 +465,17 @@ async function getCouponSelection(size = 3, league = "all", profile = "balanced"
 
   const allDetails = upcomingEvents.map((event) => buildMatchPredictionDetails(event));
   const cfg = riskConfig(profile);
+  const filterMeta = { totalMatches: sourceEvents.length };
+  const filterActive = filterMeta.totalMatches >= 50;
   const candidates = allDetails
     .map((details) => {
       const option = pickCouponOption(details, profile);
       if (!option) return null;
+      const filterInput = buildExtraFilterInput(details, option.pari);
+      const extraFilter = evaluateMatch(filterInput, filterMeta, { minMatches: 50 });
+      if (filterActive && !extraFilter.playable) return null;
       const anchor = profile === "safe" ? 1.45 : profile === "aggressive" ? 2.2 : 1.7;
-      const safetyScore = option.confiance - Math.abs(option.cote - anchor) * cfg.slope;
+      const safetyScore = option.confiance - Math.abs(option.cote - anchor) * cfg.slope + (extraFilter.score || 0) * 0.22;
       return {
         matchId: details.match.id,
         teamHome: details.match.teamHome,
@@ -403,6 +486,7 @@ async function getCouponSelection(size = 3, league = "all", profile = "balanced"
         cote: option.cote,
         confiance: Number(option.confiance.toFixed(1)),
         source: option.source,
+        extraFilter,
         safetyScore: Number(safetyScore.toFixed(2)),
       };
     })
@@ -425,6 +509,12 @@ async function getCouponSelection(size = 3, league = "all", profile = "balanced"
     totalUpcomingMatches: upcomingEvents.length,
     leagueFilter: league || "all",
     riskProfile: profile,
+    extraFilter: {
+      active: filterActive,
+      totalMatches: filterMeta.totalMatches,
+      minMatches: 50,
+      rule: filterActive ? "PLAY uniquement" : "FILTER_LOCKED (<50)",
+    },
     coupon: picks,
     summary: {
       totalSelections: picks.length,
