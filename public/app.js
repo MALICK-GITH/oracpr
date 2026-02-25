@@ -472,3 +472,73 @@ setInterval(() => {
   const wrap = document.getElementById("matches");
   if (wrap) activateAmbientOddsPulse(wrap);
 }, 2300);
+
+function registerHomeSiteControl() {
+  window.SiteControl = {
+    page: "home",
+    actions: [
+      "refresh_matches",
+      "set_mode_upcoming",
+      "set_mode_live",
+      "set_mode_finished",
+      "set_mode_turbo",
+      "set_league",
+      "open_coupon_page",
+      "open_match_first",
+    ],
+    execute(name, payload = {}) {
+      const action = String(name || "").toLowerCase();
+      if (action === "refresh_matches") return loadMatches();
+      if (action === "set_mode_upcoming") {
+        currentMatchMode = "upcoming";
+        document.querySelectorAll(".match-mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === "upcoming"));
+        renderMatches();
+        return true;
+      }
+      if (action === "set_mode_live") {
+        currentMatchMode = "live";
+        document.querySelectorAll(".match-mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === "live"));
+        renderMatches();
+        return true;
+      }
+      if (action === "set_mode_finished") {
+        currentMatchMode = "finished";
+        document.querySelectorAll(".match-mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === "finished"));
+        renderMatches();
+        return true;
+      }
+      if (action === "set_mode_turbo") {
+        currentMatchMode = "turbo";
+        document.querySelectorAll(".match-mode").forEach((b) => b.classList.toggle("active", b.dataset.mode === "turbo"));
+        renderMatches();
+        return true;
+      }
+      if (action === "set_league") {
+        const select = document.getElementById("leagueSelect");
+        const league = String(payload?.league || payload?.value || "all");
+        if (select) {
+          const exists = Array.from(select.options).some((o) => o.value === league);
+          select.value = exists ? league : "all";
+          renderMatches();
+          return true;
+        }
+        return false;
+      }
+      if (action === "open_coupon_page") {
+        window.location.href = "/coupon.html";
+        return true;
+      }
+      if (action === "open_match_first") {
+        const first = (allMatches || []).find((m) => m?.id);
+        if (first?.id) {
+          window.location.href = `/match.html?id=${encodeURIComponent(first.id)}`;
+          return true;
+        }
+        return false;
+      }
+      return false;
+    },
+  };
+}
+
+registerHomeSiteControl();

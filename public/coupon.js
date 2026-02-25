@@ -7,6 +7,10 @@ let lastCouponBackups = new Map();
 const COUPON_HISTORY_KEY = "fc25_coupon_history_v1";
 const DEFAULT_TICKET_SHIELD_DRIFT = 6;
 const MULTI_PROFILES = ["safe", "balanced", "aggressive"];
+const AUTO_COUPON_STORAGE_KEY = "fc25_auto_coupon_v1";
+const PAGE_REFRESH_COUPON_STORAGE_KEY = "fc25_coupon_refresh_minutes_v1";
+const DEFAULT_PAGE_REFRESH_MINUTES = 5;
+let pageRefreshCouponIntervalId = null;
 
 function toNumber(v, fallback = 0) {
   const n = Number(v);
@@ -25,6 +29,44 @@ function getDriftThreshold() {
   const n = Number(input?.value);
   if (!Number.isFinite(n)) return DEFAULT_TICKET_SHIELD_DRIFT;
   return Math.max(2, Math.min(25, n));
+}
+
+function getStartAlertThresholdMinutes() {
+  const input = document.getElementById("startAlertInput");
+  const n = Number(input?.value);
+  if (!Number.isFinite(n)) return 8;
+  return Math.max(1, Math.min(30, n));
+}
+
+function getPageRefreshMinutesCoupon() {
+  const stored = Number(localStorage.getItem(PAGE_REFRESH_COUPON_STORAGE_KEY));
+  if (!Number.isFinite(stored)) return DEFAULT_PAGE_REFRESH_MINUTES;
+  return Math.max(1, Math.min(60, stored));
+}
+
+function setPageRefreshMinutesCoupon(value) {
+  const safe = Math.max(1, Math.min(60, Number(value) || DEFAULT_PAGE_REFRESH_MINUTES));
+  localStorage.setItem(PAGE_REFRESH_COUPON_STORAGE_KEY, String(safe));
+  return safe;
+}
+
+function startCouponPageRefreshTimer(minutes) {
+  if (pageRefreshCouponIntervalId) {
+    clearInterval(pageRefreshCouponIntervalId);
+    pageRefreshCouponIntervalId = null;
+  }
+  const ms = Math.max(1, Number(minutes) || DEFAULT_PAGE_REFRESH_MINUTES) * 60 * 1000;
+  pageRefreshCouponIntervalId = setInterval(() => {
+    window.location.reload();
+  }, ms);
+}
+
+function isAutoCouponEnabled() {
+  return localStorage.getItem(AUTO_COUPON_STORAGE_KEY) === "1";
+}
+
+function setAutoCouponEnabled(value) {
+  localStorage.setItem(AUTO_COUPON_STORAGE_KEY, value ? "1" : "0");
 }
 
 function isStrictUpcomingMatch(match, nowSec) {
@@ -131,6 +173,15 @@ function payoutFromStake(stake, odd) {
   if (!(stake > 0 && Number.isFinite(o) && o > 1)) return { payout: 0, net: 0 };
   const payout = Number((stake * o).toFixed(2));
   return { payout, net: Number((payout - stake).toFixed(2)) };
+}
+
+function explainPickSimple(pick, riskProfile = "balanced") {
+  const conf = Number(pick?.confiance || 0);
+  const odd = Number(pick?.cote || 0);
+  const startMin = Math.max(0, Math.floor((Number(pick?.startTimeUnix || 0) - Math.floor(Date.now() / 1000)) / 60));
+  const riskText = conf >= 75 ? "profil stable" : conf >= 60 ? "profil moyen" : "profil volatil";
+  const oddText = odd >= 2.3 ? "cote agressive" : odd >= 1.7 ? "cote equilibree" : "cote prudente";
+  return `Coach IA: ${riskText}, ${oddText}, depart ${startMin} min, mode ${riskProfile}.`;
 }
 
 function pickOptionFromDetails(details, profile = "balanced") {
@@ -292,6 +343,7 @@ function updateSendButtonState() {
   const pdfBtn = document.getElementById("downloadPdfBtn");
   const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
   const pdfStickyBtn = document.getElementById("downloadPdfBtnSticky");
+  const simulateBtn = document.getElementById("simulateBankrollBtn");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
   if (btn) btn.disabled = !enabled;
   if (packBtn) packBtn.disabled = !enabled;
@@ -305,6 +357,7 @@ function updateSendButtonState() {
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
+  if (simulateBtn) simulateBtn.disabled = !enabled;
 }
 
 async function sendCouponPackToTelegram() {
@@ -317,6 +370,7 @@ async function sendCouponPackToTelegram() {
   if (panel) panel.innerHTML = "<p>Envoi groupe en cours (texte + image + PDF)...</p>";
 
   try {
+    await maybeStartAlertAndReplace();
     const adapted = await enforceTicketShield("envoi groupe Telegram");
     const payload = {
       coupon: lastCouponData.coupon,
@@ -400,6 +454,7 @@ function renderCoupon(data) {
         <div class="confidence-track"><i style="width:${Math.max(4, Math.min(100, Number(p.confiance) || 0))}%"></i><em>${Number(
           p.confiance || 0
         ).toFixed(0)}%</em></div>
+        <div class="coach-pick-line">${explainPickSimple(p, data.riskProfile || "balanced")}</div>
         <a href="/match.html?id=${encodeURIComponent(p.matchId)}">Voir detail match</a>
       </li>
     `
@@ -630,6 +685,7 @@ async function sendCouponToTelegram(sendImage = false) {
   if (panel) panel.innerHTML = `<p>Envoi Telegram ${sendImage ? "image" : "texte"} en cours...</p>`;
 
   try {
+    await maybeStartAlertAndReplace();
     const adapted = await enforceTicketShield("envoi Telegram");
 
     const payload = {
@@ -900,6 +956,89 @@ async function enforceTicketShield(actionLabel = "action") {
   return adapted;
 }
 
+async function maybeStartAlertAndReplace() {
+  if (!lastCouponData?.coupon?.length) return;
+  const threshold = getStartAlertThresholdMinutes();
+  const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+  const minStart = Number(insights?.minStartMinutes);
+  if (!Number.isFinite(minStart) || minStart > threshold) return;
+  const wantsReplace = window.confirm(
+    `Alerte intelligente: un match demarre dans ${Math.max(0, Math.floor(minStart))} min. Veux-tu remplacer le pick le plus faible maintenant ?`
+  );
+  if (wantsReplace) {
+    await replaceWeakSelection();
+  }
+}
+
+function runBankrollSimulationCore({ bankrollStart, stake, odd, winProbability, rounds = 30, trials = 1000 }) {
+  const start = Math.max(0, Number(bankrollStart) || 0);
+  const s = Math.max(1, Number(stake) || 1);
+  const o = Math.max(1.01, Number(odd) || 1.01);
+  const p = Math.max(0.02, Math.min(0.98, Number(winProbability) || 0.5));
+  const finalBankrolls = [];
+  let ruinCount = 0;
+
+  for (let t = 0; t < trials; t += 1) {
+    let bank = start;
+    for (let r = 0; r < rounds; r += 1) {
+      const bet = Math.min(s, bank);
+      if (bet <= 0) break;
+      const win = Math.random() < p;
+      bank = win ? bank + bet * (o - 1) : bank - bet;
+    }
+    if (bank <= 0) ruinCount += 1;
+    finalBankrolls.push(bank);
+  }
+
+  finalBankrolls.sort((a, b) => a - b);
+  const idx = (ratio) => finalBankrolls[Math.max(0, Math.min(finalBankrolls.length - 1, Math.floor(finalBankrolls.length * ratio)))];
+  return {
+    ruinProbability: Number(((ruinCount / trials) * 100).toFixed(1)),
+    median: Number(idx(0.5).toFixed(2)),
+    p10: Number(idx(0.1).toFixed(2)),
+    p90: Number(idx(0.9).toFixed(2)),
+  };
+}
+
+function simulateBankrollBeforeValidation() {
+  const panel = document.getElementById("bankrollPanel");
+  if (!panel) return;
+  if (!lastCouponData?.coupon?.length) {
+    panel.innerHTML = "<h3>Simulateur Bankroll</h3><p>Genere d'abord un coupon.</p>";
+    return;
+  }
+  const bankroll = Number(document.getElementById("bankrollInput")?.value || 0);
+  const stake = getStakeValue();
+  const summary = lastCouponData.summary || {};
+  const avgConf = Number(summary.averageConfidence || 0);
+  const odd = Number(summary.combinedOdd || 1);
+  const p = Math.max(0.03, Math.min(0.95, avgConf / 100));
+  const sim = runBankrollSimulationCore({
+    bankrollStart: bankroll,
+    stake,
+    odd,
+    winProbability: p,
+    rounds: 30,
+    trials: 1200,
+  });
+
+  panel.innerHTML = `
+    <h3>Simulateur Bankroll</h3>
+    <div class="meta">
+      <span>Bankroll: ${bankroll.toFixed(0)}</span>
+      <span>Mise: ${stake.toFixed(0)}</span>
+      <span>Cote coupon: ${formatOdd(odd)}</span>
+      <span>Prob. gagnee estimee: ${(p * 100).toFixed(1)}%</span>
+    </div>
+    <ul class="validation-list">
+      <li><strong>Risque de ruine (30 tickets):</strong> ${sim.ruinProbability}%</li>
+      <li><strong>Bankroll mediane:</strong> ${sim.median.toFixed(2)}</li>
+      <li><strong>Scenario prudent (P10):</strong> ${sim.p10.toFixed(2)}</li>
+      <li><strong>Scenario haut (P90):</strong> ${sim.p90.toFixed(2)}</li>
+    </ul>
+  `;
+}
+
 async function validateTicketFallback(payload) {
   const selections = Array.isArray(payload?.selections) ? payload.selections : [];
   const nowSec = Math.floor(Date.now() / 1000);
@@ -1002,6 +1141,8 @@ async function validateTicket() {
   panel.innerHTML = "<p>Validation ticket en cours...</p>";
 
   try {
+    await maybeStartAlertAndReplace();
+    simulateBankrollBeforeValidation();
     const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
     if (insights.correlationRisk >= 55) {
       panel.innerHTML =
@@ -1087,6 +1228,7 @@ async function replaceWeakSelection() {
 const generateBtn = document.getElementById("generateBtn");
 const generateMultiBtn = document.getElementById("generateMultiBtn");
 const replaceWeakBtn = document.getElementById("replaceWeakBtn");
+const simulateBankrollBtn = document.getElementById("simulateBankrollBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
 const sendPackBtn = document.getElementById("sendPackBtn");
@@ -1105,6 +1247,7 @@ const downloadPdfBtnSticky = document.getElementById("downloadPdfBtnSticky");
 if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
 if (generateMultiBtn) generateMultiBtn.addEventListener("click", renderMultiStrategy);
 if (replaceWeakBtn) replaceWeakBtn.addEventListener("click", replaceWeakSelection);
+if (simulateBankrollBtn) simulateBankrollBtn.addEventListener("click", simulateBankrollBeforeValidation);
 if (validateBtn) {
   validateBtn.addEventListener("click", validateTicket);
   validateBtn.addEventListener("touchend", (e) => {
@@ -1156,12 +1299,120 @@ if (downloadPdfBtnSticky) {
   downloadPdfBtnSticky.addEventListener("click", downloadCouponPdfPack);
 }
 
-loadLeagues();
-renderHistory();
-updateSendButtonState();
+async function initCouponPage() {
+  const refreshInput = document.getElementById("refreshMinutesCouponInput");
+  if (refreshInput) {
+    const m = getPageRefreshMinutesCoupon();
+    refreshInput.value = String(m);
+    startCouponPageRefreshTimer(m);
+    refreshInput.addEventListener("change", () => {
+      const next = setPageRefreshMinutesCoupon(refreshInput.value);
+      refreshInput.value = String(next);
+      startCouponPageRefreshTimer(next);
+    });
+  } else {
+    startCouponPageRefreshTimer(getPageRefreshMinutesCoupon());
+  }
+
+  const autoSwitch = document.getElementById("autoCouponSwitch");
+  if (autoSwitch) {
+    autoSwitch.checked = isAutoCouponEnabled();
+    autoSwitch.addEventListener("change", () => {
+      setAutoCouponEnabled(autoSwitch.checked);
+    });
+  }
+
+  await loadLeagues();
+  renderHistory();
+  updateSendButtonState();
+
+  if (isAutoCouponEnabled()) {
+    setTimeout(() => {
+      generateCoupon();
+    }, 250);
+  }
+}
+
+initCouponPage();
+
 const stakeInput = document.getElementById("stakeInput");
 if (stakeInput) {
   stakeInput.addEventListener("input", () => {
     if (lastCouponData) renderCoupon(lastCouponData);
   });
 }
+const bankrollInput = document.getElementById("bankrollInput");
+if (bankrollInput) {
+  bankrollInput.addEventListener("input", () => {
+    if (lastCouponData) simulateBankrollBeforeValidation();
+  });
+}
+
+function registerCouponSiteControl() {
+  window.SiteControl = {
+    page: "coupon",
+    actions: [
+      "generate_coupon",
+      "generate_multi",
+      "validate_ticket",
+      "replace_weak_pick",
+      "simulate_bankroll",
+      "send_telegram_text",
+      "send_telegram_image",
+      "send_telegram_pack",
+      "download_image",
+      "download_story",
+      "download_pdf_quick",
+      "download_pdf_summary",
+      "download_pdf_detailed",
+      "set_coupon_form",
+      "set_auto_coupon",
+      "set_refresh_minutes",
+    ],
+    async execute(name, payload = {}) {
+      const action = String(name || "").toLowerCase();
+      if (action === "generate_coupon") return generateCoupon();
+      if (action === "generate_multi") return renderMultiStrategy();
+      if (action === "validate_ticket") return validateTicket();
+      if (action === "replace_weak_pick") return replaceWeakSelection();
+      if (action === "simulate_bankroll") return simulateBankrollBeforeValidation();
+      if (action === "send_telegram_text") return sendCouponToTelegram(false);
+      if (action === "send_telegram_image") return sendCouponToTelegram(true);
+      if (action === "send_telegram_pack") return sendCouponPackToTelegram();
+      if (action === "download_image") return downloadCouponImage("default");
+      if (action === "download_story") return downloadCouponImage("story");
+      if (action === "download_pdf_quick") return downloadCouponPdf("quick");
+      if (action === "download_pdf_summary") return downloadCouponPdf("summary");
+      if (action === "download_pdf_detailed") return downloadCouponPdf("detailed");
+      if (action === "set_auto_coupon") {
+        const enabled = Boolean(payload?.enabled);
+        setAutoCouponEnabled(enabled);
+        const sw = document.getElementById("autoCouponSwitch");
+        if (sw) sw.checked = enabled;
+        return true;
+      }
+      if (action === "set_refresh_minutes") {
+        const m = setPageRefreshMinutesCoupon(payload?.minutes);
+        const input = document.getElementById("refreshMinutesCouponInput");
+        if (input) input.value = String(m);
+        startCouponPageRefreshTimer(m);
+        return true;
+      }
+      if (action === "set_coupon_form") {
+        const sizeInput = document.getElementById("sizeInput");
+        const riskSelect = document.getElementById("riskSelect");
+        const leagueSelect = document.getElementById("leagueSelect");
+        if (sizeInput && payload?.size) sizeInput.value = String(payload.size);
+        if (riskSelect && payload?.risk) riskSelect.value = String(payload.risk);
+        if (leagueSelect && payload?.league) {
+          const wanted = String(payload.league);
+          leagueSelect.value = Array.from(leagueSelect.options).some((o) => o.value === wanted) ? wanted : "all";
+        }
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
+registerCouponSiteControl();

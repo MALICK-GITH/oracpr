@@ -13,6 +13,8 @@
 
 * { box-sizing: border-box; }
 
+.hidden { display: none !important; }
+
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -102,7 +104,47 @@ h1 {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.55rem;
+}
+
+.mini-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.28rem 0.45rem;
+  background: rgba(14, 25, 48, 0.75);
+}
+
+.mini-control span {
+  font-size: 0.73rem;
+  color: var(--muted);
+}
+
+.mini-control input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(10, 17, 34, 0.9);
+  color: var(--text);
+  padding: 0.22rem 0.35rem;
+}
+
+.mini-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.3rem 0.48rem;
+  background: rgba(14, 25, 48, 0.75);
+  font-size: 0.8rem;
+}
+
+.mini-toggle span {
+  color: #dff5ff;
 }
 
 .refresh-badge {
@@ -244,6 +286,20 @@ h1 {
 }
 
 .drift-list { margin: 0; padding-left: 1rem; }
+
+.coach-list {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.36rem;
+}
+
+.coach-note {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(12, 22, 43, 0.8);
+  padding: 0.52rem 0.58rem;
+}
 
 ul { margin: 0; padding-left: 1.1rem; }
 li { margin: 0.22rem 0; }

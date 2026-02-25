@@ -24,6 +24,10 @@
         couponSize: sizeInput ? Number(sizeInput.value || 0) : null,
         couponRisk: riskSelect ? String(riskSelect.value || "") : null,
       },
+      capabilities: {
+        pageControl: Boolean(window.SiteControl),
+        actions: Array.isArray(window.SiteControl?.actions) ? window.SiteControl.actions : [],
+      },
     };
   }
 
@@ -129,6 +133,20 @@
         if (sizeInput && action.size) sizeInput.value = String(action.size);
         if (riskSelect && action.risk) riskSelect.value = String(action.risk);
         if (leagueSelect && action.league) leagueSelect.value = String(action.league);
+      } else if (type === "site_control" || type === "run_site_action") {
+        const ctrl = window.SiteControl;
+        if (ctrl && typeof ctrl.execute === "function") {
+          try {
+            const maybePromise = ctrl.execute(action.name || action.action || "", action.payload || {});
+            if (maybePromise && typeof maybePromise.then === "function") {
+              maybePromise.catch((e) => push("ai", `Action site echouee: ${e.message}`));
+            }
+          } catch (e) {
+            push("ai", `Action site echouee: ${e.message}`);
+          }
+        } else {
+          push("ai", "Controle du site non disponible sur cette page.");
+        }
       }
     }
 
@@ -142,6 +160,8 @@
       busy = true;
 
       try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12000);
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -149,7 +169,9 @@
             message: text,
             context: getContext(),
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timer);
         const data = await res.json();
         if (!res.ok || !data.success) {
           throw new Error(data.message || data.error || "Erreur chat");
@@ -158,7 +180,10 @@
         const actions = Array.isArray(data.actions) ? data.actions : [];
         for (const a of actions) applyAction(a);
       } catch (err) {
-        push("ai", `Erreur: ${err.message}`);
+        const msg = String(err?.name || "").includes("Abort")
+          ? "Le chat a mis trop de temps a repondre. Reessaie dans quelques secondes."
+          : `Erreur: ${err.message}`;
+        push("ai", msg);
       } finally {
         busy = false;
       }

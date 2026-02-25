@@ -11,9 +11,37 @@ const MAX_PORT_TRIES = 20;
 const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
 const CHAT_RATE_LIMIT_MAX = 10;
 const chatRateState = new Map();
+const CHAT_IO_TIMEOUT_MS = 3500;
+const CHAT_PROVIDER_TIMEOUT_MS = 7000;
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
+
+function withTimeout(promise, timeoutMs, fallbackValue = null) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallbackValue);
+      }
+    }, timeoutMs);
+
+    Promise.resolve(promise)
+      .then((v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      })
+      .catch(() => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(fallbackValue);
+      });
+  });
+}
 
 function initialsFromName(name = "") {
   const words = String(name).trim().split(/\s+/).filter(Boolean);
@@ -154,28 +182,91 @@ function localChatFallback(message, context = {}) {
     );
   }
 
+  if (
+    text.includes("bonjour") ||
+    text.includes("salut") ||
+    text.includes("ca va")
+  ) {
+    return "Salut. Je suis actif et je peux repondre a tes questions sur le site et aussi aux questions generales.";
+  }
+
+  return "Mode local actif. Je peux repondre aux questions du site et aux questions generales, puis proposer une action concrete si besoin.";
+}
+
+function isSiteQuestion(message = "") {
+  const text = normalizeTeamKey(message);
+  const keys = [
+    "site",
+    "fifa",
+    "fc24",
+    "fc25",
+    "match",
+    "cote",
+    "coupon",
+    "ticket",
+    "telegram",
+    "pari",
+    "ligue",
+    "bankroll",
+    "prediction",
+    "coach",
+    "refresh",
+  ];
+  return keys.some((k) => text.includes(k));
+}
+
+function isRefusalAnswer(answer = "") {
+  const t = normalizeTeamKey(answer);
   return (
-    "Mode local actif (quota IA atteint). Je peux quand meme aider: tri matchs, niveau de risque, construction coupon et validation."
+    t.includes("je ne peux pas repondre") ||
+    t.includes("je ne peux pas") ||
+    t.includes("je peux pas") ||
+    t.includes("je ne suis pas en mesure") ||
+    t.includes("je ne peux pas aider")
   );
+}
+
+function localGeneralAnswer(message = "") {
+  const q = String(message || "").trim();
+  const t = normalizeTeamKey(q);
+  if (!q) return "Pose ta question et je reponds directement.";
+  if (t.includes("pourquoi") && t.includes("ciel") && t.includes("bleu")) {
+    return "Le ciel parait bleu car l'atmosphere diffuse plus fortement la lumiere bleue du soleil (diffusion de Rayleigh).";
+  }
+  if (t.includes("bonjour") || t.includes("salut")) {
+    return "Salut. Je suis disponible pour toutes tes questions, site ou general.";
+  }
+  if (t.includes("comment")) {
+    return "Donne-moi le contexte exact et l'objectif, je te reponds avec des etapes simples et directes.";
+  }
+  if (t.includes("c est quoi") || t.includes("quest ce")) {
+    return "Je peux te donner une definition claire. Precise juste le terme a definir si besoin.";
+  }
+  return `Reponse generale: ${q}. Si tu veux, je peux te donner une version courte, detaillee, ou un exemple concret.`;
 }
 
 function buildSiteKnowledgeBlock() {
   return [
-    "BASE CONNAISSANCE SITE FC 25 VIRTUAL PREDICTIONS:",
+    "BASE CONNAISSANCE SITE FIFA VIRTUAL PREDICTIONS (TOUS FORMATS):",
     "- Pages: / (matchs live), /match.html?id=... (detail match), /coupon.html (coupon builder), /mode-emploi.html (guide), /about.html (createur), /developpeur.html (contacts).",
-    "- Donnees matchs: API 1xBet LiveFeed (sport FIFA virtuel), tri ligue, statut match, cotes 1X2 et marches additionnels.",
+    "- Donnees matchs: API 1xBet LiveFeed (FIFA virtuel global), tri ligue, statut match, cotes 1X2 et marches additionnels.",
+    "- Couverture: FC 24, FC 25, et toutes les ligues/formats FIFA virtuels presentes sur le site.",
     "- Detail match: decision maitre, bots, top 3 recommandations, Neural Match Engine, alertes drift cotes.",
     "- Coupon: generation optimisee par risque (safe/balanced/aggressive), validation ticket, remplacement selections faibles.",
     "- Exports: PDF coupon (resume/rapide/detaille), image coupon PNG/JPG, snap story JPG, image ticket match individuel.",
     "- Telegram: envoi texte, image, pack (texte+image+PDF), signature SOLITAIRE HACK.",
     "- Regle metier critique: aucun coupon garanti gagnant; filtrer de preference les matchs non demarres.",
     "- IA: doit donner conseils prudents, concrets, orientes actions dans le site.",
+    "- Controle IA total: via action 'site_control' avec commandes de page (home/coupon/match).",
   ].join("\n");
 }
 
 function deriveControlActions(message, context = {}) {
   const text = normalizeTeamKey(message || "");
   const actions = [];
+  const page = String(context?.page || "");
+  const capabilities = Array.isArray(context?.capabilities?.actions) ? context.capabilities.actions : [];
+  const can = (name) => capabilities.includes(name);
 
   if (text.includes("ouvre coupon") || text.includes("page coupon")) {
     actions.push({ type: "open_page", target: "/coupon.html" });
@@ -194,6 +285,66 @@ function deriveControlActions(message, context = {}) {
   }
   if (text.includes("efface chat") || text.includes("vider chat") || text.includes("clear chat")) {
     actions.push({ type: "clear_chat" });
+  }
+
+  // Controle home
+  if (page === "/" || page === "/index.html") {
+    if (text.includes("mode live") || text.includes("match en cours")) {
+      actions.push({ type: "site_control", name: "set_mode_live" });
+    }
+    if (text.includes("mode a venir") || text.includes("upcoming")) {
+      actions.push({ type: "site_control", name: "set_mode_upcoming" });
+    }
+    if (text.includes("mode turbo")) {
+      actions.push({ type: "site_control", name: "set_mode_turbo" });
+    }
+    if (text.includes("mode termine")) {
+      actions.push({ type: "site_control", name: "set_mode_finished" });
+    }
+    if (text.includes("actualise match") || text.includes("refresh match")) {
+      actions.push({ type: "site_control", name: "refresh_matches" });
+    }
+  }
+
+  // Controle coupon
+  if (page.includes("coupon")) {
+    if (text.includes("genere coupon") || text.includes("creer coupon")) {
+      actions.push({ type: "site_control", name: "generate_coupon" });
+    }
+    if (text.includes("valide ticket")) {
+      actions.push({ type: "site_control", name: "validate_ticket" });
+    }
+    if (text.includes("remplace faible")) {
+      actions.push({ type: "site_control", name: "replace_weak_pick" });
+    }
+    if (text.includes("simule bankroll")) {
+      actions.push({ type: "site_control", name: "simulate_bankroll" });
+    }
+    if (text.includes("envoie telegram image")) {
+      actions.push({ type: "site_control", name: "send_telegram_image" });
+    } else if (text.includes("envoie telegram")) {
+      actions.push({ type: "site_control", name: "send_telegram_text" });
+    }
+    if (text.includes("envoie pack")) {
+      actions.push({ type: "site_control", name: "send_telegram_pack" });
+    }
+    if (text.includes("pdf rapide")) actions.push({ type: "site_control", name: "download_pdf_quick" });
+    if (text.includes("pdf detail")) actions.push({ type: "site_control", name: "download_pdf_detailed" });
+    if (text.includes("pdf")) actions.push({ type: "site_control", name: "download_pdf_summary" });
+    if (text.includes("image coupon")) actions.push({ type: "site_control", name: "download_image" });
+    if (text.includes("story")) actions.push({ type: "site_control", name: "download_story" });
+  }
+
+  // Controle match detail
+  if (page.includes("match")) {
+    if (text.includes("coach on")) actions.push({ type: "site_control", name: "toggle_coach_mode", payload: { enabled: true } });
+    if (text.includes("coach off")) actions.push({ type: "site_control", name: "toggle_coach_mode", payload: { enabled: false } });
+    if (text.includes("export 1 clic") || text.includes("export all")) actions.push({ type: "site_control", name: "export_match_all" });
+    if (text.includes("match telegram image")) actions.push({ type: "site_control", name: "send_match_telegram_image" });
+    if (text.includes("match telegram")) actions.push({ type: "site_control", name: "send_match_telegram_text" });
+    if (text.includes("pdf match")) actions.push({ type: "site_control", name: "download_match_pdf" });
+    if (text.includes("image match")) actions.push({ type: "site_control", name: "download_match_image" });
+    if (text.includes("refresh detail")) actions.push({ type: "site_control", name: "refresh_match_data" });
   }
 
   // Simple parse "coupon 3 matchs safe"
@@ -216,6 +367,17 @@ function deriveControlActions(message, context = {}) {
         risk: risk || undefined,
         league: league || undefined,
       });
+      if (can("set_coupon_form")) {
+        actions.push({
+          type: "site_control",
+          name: "set_coupon_form",
+          payload: {
+            size: size || undefined,
+            risk: risk || undefined,
+            league: league || undefined,
+          },
+        });
+      }
     }
   }
 
@@ -233,7 +395,7 @@ async function buildDynamicRuntimeContext({ page, league, matchId }) {
 
   if (matchId) {
     try {
-      const details = await getMatchPredictionDetails(matchId);
+      const details = await withTimeout(getMatchPredictionDetails(matchId), CHAT_IO_TIMEOUT_MS, null);
       const m = details?.match || {};
       const master = details?.prediction?.maitre?.decision_finale || {};
       lines.push(
@@ -250,7 +412,7 @@ async function buildDynamicRuntimeContext({ page, league, matchId }) {
     lines.push(runtimeContextCache.summary);
   } else {
     try {
-      const listing = await getPenaltyMatches();
+      const listing = await withTimeout(getPenaltyMatches(), CHAT_IO_TIMEOUT_MS, null);
       const matches = Array.isArray(listing?.matches) ? listing.matches : [];
       const upcoming = matches.filter((x) => Number(x?.startTimeUnix || 0) > Math.floor(Date.now() / 1000));
       const byLeague = new Map();
@@ -1298,6 +1460,8 @@ async function requestAnthropicChat({ baseUrl, apiKey, model, systemPrompt, user
 
   for (const endpoint of endpointCandidates) {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -1315,7 +1479,9 @@ async function requestAnthropicChat({ baseUrl, apiKey, model, systemPrompt, user
           temperature: 0.5,
           max_tokens: 500,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       const parsed = await parseResponseSafe(response);
       const raw = parsed.json;
@@ -1375,6 +1541,8 @@ async function requestSlokChat({ baseUrl, apiKey, model, systemPrompt, userPromp
   for (const endpoint of endpointCandidates) {
     try {
       const mergedPrompt = [systemPrompt, userPrompt].filter(Boolean).join("\n\n");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -1390,7 +1558,9 @@ async function requestSlokChat({ baseUrl, apiKey, model, systemPrompt, userPromp
           internet_access: false,
           mime_type: "",
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const parsed = await parseResponseSafe(response);
       if (!response.ok) {
         const msg =
@@ -1425,13 +1595,17 @@ async function requestSlokChat({ baseUrl, apiKey, model, systemPrompt, userPromp
       let answer = "";
       let statusErr = "";
       for (let i = 0; i < 80; i += 1) {
+        const statusCtl = new AbortController();
+        const statusTimer = setTimeout(() => statusCtl.abort(), 5000);
         const statusRes = await fetch(statusEndpoint, {
           method: "GET",
           headers: {
             "api-key": apiKey,
             Authorization: `Bearer ${apiKey}`,
           },
+          signal: statusCtl.signal,
         });
+        clearTimeout(statusTimer);
         const statusParsed = await parseResponseSafe(statusRes);
         const statusJson = statusParsed.json;
         if (!statusRes.ok) {
@@ -1477,6 +1651,9 @@ app.post("/api/chat", async (req, res) => {
     const page = trimText(req.body?.context?.page || "site", 80);
     const matchId = trimText(req.body?.context?.matchId || "", 60);
     const league = trimText(req.body?.context?.league || "", 120);
+    const pageActions = Array.isArray(req.body?.context?.capabilities?.actions)
+      ? req.body.context.capabilities.actions.slice(0, 40).map((x) => trimText(x, 80))
+      : [];
 
     if (!message) {
       return res.status(400).json({
@@ -1488,10 +1665,11 @@ app.post("/api/chat", async (req, res) => {
     const siteKnowledge = buildSiteKnowledgeBlock();
 
     const systemPrompt =
-      "Tu es SOLITAIRE AI, assistant integre au site FC 25 Virtual Predictions. " +
+      "Tu es SOLITAIRE AI, assistant integre au site FIFA Virtual Predictions (FC24, FC25 et autres formats FIFA virtuels du site). " +
       "Reponds en francais, ton direct, concret et court (1 a 4 phrases). " +
-      "Reste centre sur le site: matchs, cotes, coupon, risque, validation ticket. " +
-      "N'ecris pas de reponses generiques de chatbot. " +
+      "Priorite 1: questions du site (matchs, cotes, coupon, risque, validation ticket). " +
+      "Tu dois aussi repondre aux questions generales (culture, explications, conseils pratiques) meme hors site. " +
+      "Si question hors site: reponse utile + relance courte pour revenir au besoin sur le site. " +
       "Quand on te demande si tu vois le site, reponds: tu ne vois pas l'ecran en direct, mais tu utilises le contexte de page fourni (page, ligue, match). " +
       "Tu ne promets jamais un gain garanti et tu proposes des options prudentes.\n\n" +
       siteKnowledge;
@@ -1499,11 +1677,12 @@ app.post("/api/chat", async (req, res) => {
     const runtimeContext = await buildDynamicRuntimeContext({ page, league, matchId });
 
     const userPrompt = [
-      "Mode: assistant du site, pas assistant general.",
+      "Mode: assistant polyvalent, priorite site mais repondre aussi aux questions generales.",
       `Contexte runtime:\n${runtimeContext}`,
       `Contexte page: ${page}`,
       matchId ? `Match ID: ${matchId}` : "",
       league ? `Ligue: ${league}` : "",
+      pageActions.length ? `Actions page disponibles: ${pageActions.join(", ")}` : "",
       `Question utilisateur: ${message}`,
     ]
       .filter(Boolean)
@@ -1524,18 +1703,27 @@ app.post("/api/chat", async (req, res) => {
 
     if (anthropicBaseUrl && anthropicKey) {
       try {
-        const result = await requestAnthropicChat({
-          baseUrl: anthropicBaseUrl,
-          apiKey: anthropicKey,
-          model: anthropicModel,
-          systemPrompt,
-          userPrompt,
-        });
+        const result = await withTimeout(
+          requestAnthropicChat({
+            baseUrl: anthropicBaseUrl,
+            apiKey: anthropicKey,
+            model: anthropicModel,
+            systemPrompt,
+            userPrompt,
+          }),
+          CHAT_PROVIDER_TIMEOUT_MS,
+          null
+        );
+        if (!result) throw new Error("Timeout provider Anthropic.");
+        let answer = result.answer;
+        if (isRefusalAnswer(answer) && !isSiteQuestion(message)) {
+          answer = localGeneralAnswer(message);
+        }
         return res.json({
           success: true,
           provider: "anthropic",
           model: result.model,
-          answer: result.answer,
+          answer,
           actions,
         });
       } catch (error) {
@@ -1543,18 +1731,27 @@ app.post("/api/chat", async (req, res) => {
       }
 
       try {
-        const slokResult = await requestSlokChat({
-          baseUrl: anthropicBaseUrl,
-          apiKey: anthropicKey,
-          model: anthropicModel,
-          systemPrompt,
-          userPrompt,
-        });
+        const slokResult = await withTimeout(
+          requestSlokChat({
+            baseUrl: anthropicBaseUrl,
+            apiKey: anthropicKey,
+            model: anthropicModel,
+            systemPrompt,
+            userPrompt,
+          }),
+          CHAT_PROVIDER_TIMEOUT_MS,
+          null
+        );
+        if (!slokResult) throw new Error("Timeout provider Slok.");
+        let answer = slokResult.answer;
+        if (isRefusalAnswer(answer) && !isSiteQuestion(message)) {
+          answer = localGeneralAnswer(message);
+        }
         return res.json({
           success: true,
           provider: "slok",
           model: slokResult.model,
-          answer: slokResult.answer,
+          answer,
           actions,
         });
       } catch (error) {
@@ -1568,7 +1765,11 @@ app.post("/api/chat", async (req, res) => {
       success: true,
       provider: "local-fallback",
       model: "local-fallback",
-      answer: `${localChatFallback(message, { page, league, matchId })}\n\n[Info technique: ${errors.join(" | ")}]`,
+      answer: `${
+        isSiteQuestion(message)
+          ? localChatFallback(message, { page, league, matchId })
+          : localGeneralAnswer(message)
+      }\n\n[Info technique: ${errors.join(" | ")}]`,
       actions,
     });
   } catch (error) {
@@ -1576,7 +1777,11 @@ app.post("/api/chat", async (req, res) => {
       success: true,
       provider: "local-fallback",
       model: "local-fallback",
-      answer: `${localChatFallback(req.body?.message, req.body?.context)}\n\n[Info technique: ${error.message}]`,
+      answer: `${
+        isSiteQuestion(req.body?.message)
+          ? localChatFallback(req.body?.message, req.body?.context)
+          : localGeneralAnswer(req.body?.message)
+      }\n\n[Info technique: ${error.message}]`,
       actions: deriveControlActions(req.body?.message, req.body?.context || {}),
     });
   }

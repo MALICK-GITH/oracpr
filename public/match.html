@@ -27,15 +27,28 @@
         <p id="sub">Analyse complete en cours</p>
         <div class="hero-tools">
           <span class="refresh-badge" id="refreshBadge">Auto-refresh dans 60s</span>
+          <label class="mini-control">
+            <span>Refresh page (min)</span>
+            <input id="refreshMinutesInput" type="number" min="1" max="60" step="1" value="5" />
+          </label>
+          <label class="mini-toggle">
+            <input id="coachModeToggle" type="checkbox" checked />
+            <span>Mode Coach IA</span>
+          </label>
           <button class="telegram-match-btn" id="sendMatchTelegramBtn" type="button" disabled>Envoyer Telegram</button>
           <button class="telegram-match-btn" id="sendMatchTelegramImageBtn" type="button" disabled>Telegram Image</button>
           <button class="pdf-match-btn" id="downloadMatchImageBtn" type="button" disabled>Image Match</button>
           <button class="pdf-match-btn" id="downloadMatchPdfBtn" type="button" disabled>PDF Match</button>
+          <button class="pdf-match-btn" id="exportAllMatchBtn" type="button" disabled>Export 1-Clic</button>
         </div>
       </header>
 
       <section class="panel hidden" id="driftAlert"></section>
       <section class="panel" id="master"></section>
+      <section class="panel" id="coachPanel">
+        <h2>Mode Coach IA</h2>
+        <div id="coachContent">Analyse coach en attente...</div>
+      </section>
       <section class="panel analytics-panel">
         <h2>Neural Match Engine</h2>
         <div class="kpi-grid" id="kpiGrid"></div>

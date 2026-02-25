@@ -1,16 +1,20 @@
 const AUTO_REFRESH_SECONDS = 60;
 const DRIFT_THRESHOLD_PERCENT = 8;
+const PAGE_REFRESH_STORAGE_KEY = "fc25_page_refresh_minutes_v1";
+const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 
 let radarChart = null;
 let flowChart = null;
 let currentMatchId = null;
 let refreshIntervalId = null;
 let countdownIntervalId = null;
+let pageRefreshIntervalId = null;
 let countdown = AUTO_REFRESH_SECONDS;
 let previousOdds = null;
 let loading = false;
 const IS_MOBILE = window.matchMedia("(max-width: 760px)").matches;
 let lastDetailsData = null;
+let coachModeEnabled = true;
 
 function qs(name) {
   return new URLSearchParams(window.location.search).get(name);
@@ -42,15 +46,40 @@ function updateRefreshBadge() {
   if (el) el.textContent = `Auto-refresh dans ${countdown}s`;
 }
 
+function getPageRefreshMinutes() {
+  const raw = Number(localStorage.getItem(PAGE_REFRESH_STORAGE_KEY));
+  if (!Number.isFinite(raw)) return DEFAULT_PAGE_REFRESH_MINUTES;
+  return Math.max(1, Math.min(60, raw));
+}
+
+function setPageRefreshMinutes(value) {
+  const safe = Math.max(1, Math.min(60, Number(value) || DEFAULT_PAGE_REFRESH_MINUTES));
+  localStorage.setItem(PAGE_REFRESH_STORAGE_KEY, String(safe));
+  return safe;
+}
+
+function startPageRefreshTimer(minutes) {
+  if (pageRefreshIntervalId) {
+    clearInterval(pageRefreshIntervalId);
+    pageRefreshIntervalId = null;
+  }
+  const ms = Math.max(1, Number(minutes) || DEFAULT_PAGE_REFRESH_MINUTES) * 60 * 1000;
+  pageRefreshIntervalId = setInterval(() => {
+    window.location.reload();
+  }, ms);
+}
+
 function setMatchTelegramButtonEnabled(enabled) {
   const btn = document.getElementById("sendMatchTelegramBtn");
   const btnImageTelegram = document.getElementById("sendMatchTelegramImageBtn");
   const pdfBtn = document.getElementById("downloadMatchPdfBtn");
   const imageBtn = document.getElementById("downloadMatchImageBtn");
+  const exportBtn = document.getElementById("exportAllMatchBtn");
   if (btn) btn.disabled = !enabled;
   if (btnImageTelegram) btnImageTelegram.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (imageBtn) imageBtn.disabled = !enabled;
+  if (exportBtn) exportBtn.disabled = !enabled;
 }
 
 function startAutoRefresh() {
@@ -188,6 +217,48 @@ function renderMarkets(markets) {
   el.innerHTML = `<h2>Marches Analyses</h2><ul>${li || "<li>Aucun marche</li>"}</ul>`;
 }
 
+function buildCoachLines(data) {
+  const match = data?.match || {};
+  const prediction = data?.prediction || {};
+  const selection = pickSingleSelectionFromDetails(data);
+  const marketCount = Array.isArray(data?.bettingMarkets) ? data.bettingMarkets.length : 0;
+  const probs = impliedProbabilities(match?.odds1x2 || {});
+  const master = prediction?.maitre?.decision_finale || {};
+  const confidence = Number(selection?.confiance || master?.confiance_numerique || 0);
+  const minToStart = Math.max(0, Math.floor((Number(match?.startTimeUnix || 0) - Math.floor(Date.now() / 1000)) / 60));
+  const risk =
+    confidence >= 74 ? "Risque faible" : confidence >= 60 ? "Risque moyen" : "Risque eleve";
+  const line = Number(selection?.cote || 0);
+  const side =
+    String(selection?.pari || "").includes("Plus de") || String(selection?.pari || "").includes("Moins de")
+      ? "marche total"
+      : "issue principale";
+
+  const lines = [
+    `Le pari recommande est "${selection?.pari || master?.pari_choisi || "Aucun"}" car la confiance actuelle est ${confidence.toFixed(
+      1
+    )}% (${risk}).`,
+    `La cote ${line > 0 ? line.toFixed(3) : "-"} reste dans une zone exploitable pour un ${side}.`,
+    `Probabilites implicites: domicile ${probs.home.toFixed(1)}%, nul ${probs.draw.toFixed(1)}%, exterieur ${probs.away.toFixed(1)}%.`,
+    `Le match ${minToStart <= 0 ? "semble deja demarre" : `demarre dans environ ${minToStart} min`} et ${marketCount} marches sont disponibles.`,
+    `Regle coach: valide le ticket seulement si la cote ne derive pas fortement et si la confiance reste au-dessus de 60%.`,
+  ];
+  return lines;
+}
+
+function renderCoachPanel(data) {
+  const panel = document.getElementById("coachPanel");
+  const content = document.getElementById("coachContent");
+  if (!panel || !content) return;
+  if (!coachModeEnabled) {
+    panel.classList.add("hidden");
+    return;
+  }
+  panel.classList.remove("hidden");
+  const lines = buildCoachLines(data);
+  content.innerHTML = `<ol class="coach-list">${lines.map((x) => `<li class="coach-note">${x}</li>`).join("")}</ol>`;
+}
+
 function pickSingleSelectionFromDetails(data) {
   const match = data?.match || {};
   const prediction = data?.prediction || {};
@@ -316,6 +387,52 @@ async function sendCurrentMatchImageToTelegram() {
   } finally {
     if (btn) {
       btn.textContent = "Telegram Image";
+      setMatchTelegramButtonEnabled(Boolean(lastDetailsData));
+    }
+  }
+}
+
+async function exportMatchAllInOne() {
+  const btn = document.getElementById("exportAllMatchBtn");
+  if (!lastDetailsData) return;
+  const selection = pickSingleSelectionFromDetails(lastDetailsData);
+  if (!selection) {
+    document.getElementById("sub").textContent = "Export 1-clic impossible: aucune selection fiable.";
+    return;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (Number(lastDetailsData?.match?.startTimeUnix || 0) <= now) {
+    document.getElementById("sub").textContent = "Export 1-clic bloque: match deja demarre.";
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Export en cours...";
+  }
+  try {
+    const payload = {
+      coupon: [selection],
+      summary: couponSummary([selection]),
+      riskProfile: "single-match",
+      imageFormat: "png",
+    };
+    const tgRes = await fetch("/api/coupon/send-telegram-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const tgData = await tgRes.json();
+    if (!tgRes.ok || !tgData?.success) {
+      throw new Error(tgData?.error || tgData?.message || "Erreur pack Telegram");
+    }
+    await downloadCurrentMatchImage();
+    await downloadCurrentMatchPdf();
+    document.getElementById("sub").textContent = "Export 1-clic termine: Telegram + Image + PDF.";
+  } catch (error) {
+    document.getElementById("sub").textContent = `Erreur export 1-clic: ${error.message}`;
+  } finally {
+    if (btn) {
+      btn.textContent = "Export 1-Clic";
       setMatchTelegramButtonEnabled(Boolean(lastDetailsData));
     }
   }
@@ -662,6 +779,7 @@ async function loadData(trigger = "manual") {
     document.getElementById("sub").textContent = `${match.league} | marche(s): ${data.bettingMarkets?.length || 0}${trigger === "auto" ? " | mise a jour auto" : ""}`;
 
     renderMaster(data.prediction?.maitre?.decision_finale || {}, data.prediction?.maitre?.analyse_bots || {});
+    renderCoachPanel(data);
     renderNeuralCharts(data);
     renderBots(data.prediction?.bots || {});
     renderTop3(data.prediction?.analyse_avancee?.top_3_recommandations || []);
@@ -692,6 +810,27 @@ function init() {
   }
   countdown = AUTO_REFRESH_SECONDS;
   updateRefreshBadge();
+  const refreshInput = document.getElementById("refreshMinutesInput");
+  if (refreshInput) {
+    const defaultMin = getPageRefreshMinutes();
+    refreshInput.value = String(defaultMin);
+    startPageRefreshTimer(defaultMin);
+    refreshInput.addEventListener("change", () => {
+      const v = setPageRefreshMinutes(refreshInput.value);
+      refreshInput.value = String(v);
+      startPageRefreshTimer(v);
+    });
+  } else {
+    startPageRefreshTimer(getPageRefreshMinutes());
+  }
+  const coachToggle = document.getElementById("coachModeToggle");
+  if (coachToggle) {
+    coachToggle.checked = true;
+    coachToggle.addEventListener("change", () => {
+      coachModeEnabled = Boolean(coachToggle.checked);
+      if (lastDetailsData) renderCoachPanel(lastDetailsData);
+    });
+  }
   setMatchTelegramButtonEnabled(false);
   const sendBtn = document.getElementById("sendMatchTelegramBtn");
   if (sendBtn) sendBtn.addEventListener("click", sendCurrentMatchToTelegram);
@@ -701,8 +840,53 @@ function init() {
   if (pdfBtn) pdfBtn.addEventListener("click", downloadCurrentMatchPdf);
   const imageBtn = document.getElementById("downloadMatchImageBtn");
   if (imageBtn) imageBtn.addEventListener("click", downloadCurrentMatchImage);
+  const exportAllBtn = document.getElementById("exportAllMatchBtn");
+  if (exportAllBtn) exportAllBtn.addEventListener("click", exportMatchAllInOne);
   loadData("manual");
   startAutoRefresh();
 }
 
 init();
+
+function registerMatchSiteControl() {
+  window.SiteControl = {
+    page: "match",
+    actions: [
+      "refresh_match_data",
+      "send_match_telegram_text",
+      "send_match_telegram_image",
+      "download_match_image",
+      "download_match_pdf",
+      "export_match_all",
+      "toggle_coach_mode",
+      "set_refresh_minutes",
+    ],
+    async execute(name, payload = {}) {
+      const action = String(name || "").toLowerCase();
+      if (action === "refresh_match_data") return loadData("manual");
+      if (action === "send_match_telegram_text") return sendCurrentMatchToTelegram();
+      if (action === "send_match_telegram_image") return sendCurrentMatchImageToTelegram();
+      if (action === "download_match_image") return downloadCurrentMatchImage();
+      if (action === "download_match_pdf") return downloadCurrentMatchPdf();
+      if (action === "export_match_all") return exportMatchAllInOne();
+      if (action === "toggle_coach_mode") {
+        const desired = typeof payload?.enabled === "boolean" ? payload.enabled : !coachModeEnabled;
+        coachModeEnabled = Boolean(desired);
+        const toggle = document.getElementById("coachModeToggle");
+        if (toggle) toggle.checked = coachModeEnabled;
+        if (lastDetailsData) renderCoachPanel(lastDetailsData);
+        return true;
+      }
+      if (action === "set_refresh_minutes") {
+        const m = setPageRefreshMinutes(payload?.minutes);
+        const input = document.getElementById("refreshMinutesInput");
+        if (input) input.value = String(m);
+        startPageRefreshTimer(m);
+        return true;
+      }
+      return false;
+    },
+  };
+}
+
+registerMatchSiteControl();
