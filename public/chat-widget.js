@@ -1,6 +1,75 @@
 (function initChatWidget() {
   const key = "fc25_chat_history_v1";
 
+  function compactText(value, max = 140) {
+    const t = String(value || "").replace(/\s+/g, " ").trim();
+    return t.length > max ? `${t.slice(0, max)}...` : t;
+  }
+
+  function buildPageSnapshot() {
+    const page = window.location.pathname || "/";
+    const title = compactText(document.querySelector("h1")?.textContent || "");
+    const enabledButtons = Array.from(document.querySelectorAll("button"))
+      .filter((b) => !b.disabled)
+      .map((b) => compactText(b.textContent, 40))
+      .filter(Boolean)
+      .slice(0, 12);
+
+    if (page === "/" || page === "/index.html") {
+      const cards = Array.from(document.querySelectorAll(".match-card")).slice(0, 6).map((c) => {
+        const teams = compactText(
+          `${c.querySelector(".team-col .team-name")?.textContent || "?"} vs ${
+            c.querySelectorAll(".team-col .team-name")?.[1]?.textContent || "?"
+          }`,
+          70
+        );
+        const status = compactText(c.querySelector(".status-pill")?.textContent || "");
+        const league = compactText(c.querySelector(".league")?.textContent || "");
+        return `${teams} | ${league} | ${status}`;
+      });
+      return {
+        pageType: "home",
+        title,
+        cardsVisible: document.querySelectorAll(".match-card").length,
+        topCards: cards,
+        enabledButtons,
+      };
+    }
+
+    if (page.includes("coupon")) {
+      const selections = Array.from(document.querySelectorAll("#result ol li"))
+        .slice(0, 8)
+        .map((li) => compactText(li.textContent, 120));
+      const status = compactText(document.querySelector("#validation")?.textContent || "", 220);
+      return {
+        pageType: "coupon",
+        title,
+        selectionsVisible: selections.length,
+        selections,
+        validationStatus: status,
+        enabledButtons,
+      };
+    }
+
+    if (page.includes("match")) {
+      const subtitle = compactText(document.querySelector("#sub")?.textContent || "", 180);
+      const master = compactText(document.querySelector("#master")?.textContent || "", 220);
+      return {
+        pageType: "match",
+        title,
+        subtitle,
+        master,
+        enabledButtons,
+      };
+    }
+
+    return {
+      pageType: "other",
+      title,
+      enabledButtons,
+    };
+  }
+
   function getContext() {
     const params = new URLSearchParams(window.location.search);
     const matchId = params.get("id") || "";
@@ -28,6 +97,7 @@
         pageControl: Boolean(window.SiteControl),
         actions: Array.isArray(window.SiteControl?.actions) ? window.SiteControl.actions : [],
       },
+      pageSnapshot: buildPageSnapshot(),
     };
   }
 
@@ -115,7 +185,7 @@
       push("ai", "Historique efface. Je suis pret pour une nouvelle session.");
     });
 
-    function applyAction(action) {
+    async function applyAction(action) {
       if (!action || typeof action !== "object") return;
       const type = String(action.type || "");
       if (type === "open_page" && action.target) {
@@ -137,10 +207,7 @@
         const ctrl = window.SiteControl;
         if (ctrl && typeof ctrl.execute === "function") {
           try {
-            const maybePromise = ctrl.execute(action.name || action.action || "", action.payload || {});
-            if (maybePromise && typeof maybePromise.then === "function") {
-              maybePromise.catch((e) => push("ai", `Action site echouee: ${e.message}`));
-            }
+            await ctrl.execute(action.name || action.action || "", action.payload || {});
           } catch (e) {
             push("ai", `Action site echouee: ${e.message}`);
           }
@@ -178,7 +245,11 @@
         }
         push("ai", data.answer || "Aucune reponse.");
         const actions = Array.isArray(data.actions) ? data.actions : [];
-        for (const a of actions) applyAction(a);
+        for (const a of actions) {
+          // Execute actions in order to support chained intents:
+          // set form -> generate coupon -> send telegram pack.
+          await applyAction(a);
+        }
       } catch (err) {
         const msg = String(err?.name || "").includes("Abort")
           ? "Le chat a mis trop de temps a repondre. Reessaie dans quelques secondes."

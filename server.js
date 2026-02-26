@@ -150,6 +150,14 @@ function localChatFallback(message, context = {}) {
   const page = String(context.page || "site");
   const league = String(context.league || "toutes les ligues");
   const matchId = String(context.matchId || "");
+  const pageSnapshot = context?.pageSnapshot || null;
+
+  if ((text.includes("tu vois la page") || text.includes("tu vois le site") || text.includes("est ce que tu vois")) && pageSnapshot) {
+    const pageType = String(pageSnapshot?.pageType || context?.page || "site");
+    const cards = Number(pageSnapshot?.cardsVisible || 0);
+    const selections = Number(pageSnapshot?.selectionsVisible || 0);
+    return `Oui, je vois la page via le snapshot temps reel (${pageType}). Elements detectes: matchs=${cards}, selections=${selections}.`;
+  }
 
   if (
     text.includes("site") ||
@@ -287,6 +295,26 @@ function deriveControlActions(message, context = {}) {
     actions.push({ type: "clear_chat" });
   }
 
+  const wantsCoupon =
+    text.includes("coupon") || text.includes("ticket") || text.includes("parlay");
+  const wantsGenerate =
+    text.includes("fait") ||
+    text.includes("fais") ||
+    text.includes("genere") ||
+    text.includes("cree") ||
+    text.includes("prepare");
+  const wantsTelegram =
+    text.includes("telegram") ||
+    text.includes("tg") ||
+    text.includes("balance sur tg") ||
+    text.includes("envoie sur tg") ||
+    text.includes("envoi sur tg") ||
+    text.includes("send tg");
+  const wantsPack =
+    text.includes("pack") ||
+    text.includes("image+pdf+telegram") ||
+    text.includes("image pdf telegram");
+
   // Controle home
   if (page === "/" || page === "/index.html") {
     if (text.includes("mode live") || text.includes("match en cours")) {
@@ -308,6 +336,9 @@ function deriveControlActions(message, context = {}) {
 
   // Controle coupon
   if (page.includes("coupon")) {
+    if (wantsCoupon && wantsGenerate) {
+      actions.push({ type: "site_control", name: "generate_coupon" });
+    }
     if (text.includes("genere coupon") || text.includes("creer coupon")) {
       actions.push({ type: "site_control", name: "generate_coupon" });
     }
@@ -322,10 +353,10 @@ function deriveControlActions(message, context = {}) {
     }
     if (text.includes("envoie telegram image")) {
       actions.push({ type: "site_control", name: "send_telegram_image" });
-    } else if (text.includes("envoie telegram")) {
+    } else if (text.includes("envoie telegram") || wantsTelegram) {
       actions.push({ type: "site_control", name: "send_telegram_text" });
     }
-    if (text.includes("envoie pack")) {
+    if (text.includes("envoie pack") || wantsPack || (wantsCoupon && wantsGenerate && wantsTelegram)) {
       actions.push({ type: "site_control", name: "send_telegram_pack" });
     }
     if (text.includes("pdf rapide")) actions.push({ type: "site_control", name: "download_pdf_quick" });
@@ -381,7 +412,19 @@ function deriveControlActions(message, context = {}) {
     }
   }
 
-  return actions;
+  // Si demande coupon+TG hors page coupon, basculer automatiquement
+  if (!page.includes("coupon") && wantsCoupon && wantsGenerate && wantsTelegram) {
+    actions.unshift({ type: "open_page", target: "/coupon.html" });
+  }
+
+  const priority = (a) => {
+    if (a?.type === "set_coupon_form") return 10;
+    if (a?.type === "site_control" && a?.name === "set_coupon_form") return 11;
+    if (a?.type === "site_control" && a?.name === "generate_coupon") return 20;
+    if (a?.type === "site_control" && (a?.name === "send_telegram_pack" || a?.name === "send_telegram_text" || a?.name === "send_telegram_image")) return 30;
+    return 50;
+  };
+  return actions.sort((x, y) => priority(x) - priority(y));
 }
 
 const runtimeContextCache = {
@@ -1651,6 +1694,7 @@ app.post("/api/chat", async (req, res) => {
     const page = trimText(req.body?.context?.page || "site", 80);
     const matchId = trimText(req.body?.context?.matchId || "", 60);
     const league = trimText(req.body?.context?.league || "", 120);
+    const pageSnapshot = req.body?.context?.pageSnapshot || null;
     const pageActions = Array.isArray(req.body?.context?.capabilities?.actions)
       ? req.body.context.capabilities.actions.slice(0, 40).map((x) => trimText(x, 80))
       : [];
@@ -1670,7 +1714,7 @@ app.post("/api/chat", async (req, res) => {
       "Priorite 1: questions du site (matchs, cotes, coupon, risque, validation ticket). " +
       "Tu dois aussi repondre aux questions generales (culture, explications, conseils pratiques) meme hors site. " +
       "Si question hors site: reponse utile + relance courte pour revenir au besoin sur le site. " +
-      "Quand on te demande si tu vois le site, reponds: tu ne vois pas l'ecran en direct, mais tu utilises le contexte de page fourni (page, ligue, match). " +
+      "Quand on te demande si tu vois la page, reponds OUI: tu vois l'etat temps reel transmis par le site (snapshot DOM), et donne 1-2 elements concrets vus. " +
       "Tu ne promets jamais un gain garanti et tu proposes des options prudentes.\n\n" +
       siteKnowledge;
 
@@ -1682,6 +1726,7 @@ app.post("/api/chat", async (req, res) => {
       `Contexte page: ${page}`,
       matchId ? `Match ID: ${matchId}` : "",
       league ? `Ligue: ${league}` : "",
+      pageSnapshot ? `Snapshot page: ${JSON.stringify(pageSnapshot).slice(0, 2500)}` : "",
       pageActions.length ? `Actions page disponibles: ${pageActions.join(", ")}` : "",
       `Question utilisateur: ${message}`,
     ]
@@ -1699,7 +1744,13 @@ app.post("/api/chat", async (req, res) => {
       trimText(process.env.ANTHROPIC_DEFAULT_SONNET_MODEL || "", 120) ||
       "claude-opus-4-6";
     const errors = [];
-    const actions = deriveControlActions(message, { page, league, matchId });
+    const actions = deriveControlActions(message, {
+      page,
+      league,
+      matchId,
+      capabilities: { actions: pageActions },
+      pageSnapshot,
+    });
 
     if (anthropicBaseUrl && anthropicKey) {
       try {
