@@ -1,5 +1,6 @@
 (function initChatWidget() {
   const key = "fc25_chat_history_v1";
+  const pendingActionsKey = "fc25_pending_site_actions_v1";
   const GLOBAL_REFRESH_KEY_MATCH = "fc25_page_refresh_minutes_v1";
   const GLOBAL_REFRESH_KEY_COUPON = "fc25_coupon_refresh_minutes_v1";
   const GLOBAL_REFRESH_DEFAULT_MIN = 5;
@@ -273,9 +274,17 @@
         }
         push("ai", data.answer || "Aucune reponse.");
         const actions = Array.isArray(data.actions) ? data.actions : [];
-        for (const a of actions) {
-          // Execute actions in order to support chained intents:
-          // set form -> generate coupon -> send telegram pack.
+        for (let i = 0; i < actions.length; i += 1) {
+          const a = actions[i];
+          const type = String(a?.type || "");
+          if (type === "open_page" && a?.target) {
+            const rest = actions.slice(i + 1);
+            if (rest.length) {
+              sessionStorage.setItem(pendingActionsKey, JSON.stringify(rest));
+            }
+            await applyAction(a);
+            return;
+          }
           await applyAction(a);
         }
       } catch (err) {
@@ -293,9 +302,42 @@
     document.addEventListener("DOMContentLoaded", () => {
       startGlobalAutoRefresh();
       createUI();
+      runPendingActions();
     });
   } else {
     startGlobalAutoRefresh();
     createUI();
+    runPendingActions();
+  }
+
+  async function runPendingActions() {
+    const raw = sessionStorage.getItem(pendingActionsKey);
+    if (!raw) return;
+    sessionStorage.removeItem(pendingActionsKey);
+    let actions = [];
+    try {
+      const parsed = JSON.parse(raw);
+      actions = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      actions = [];
+    }
+    if (!actions.length) return;
+    const ctrl = window.SiteControl;
+    if (!ctrl || typeof ctrl.execute !== "function") return;
+    for (const a of actions) {
+      const type = String(a?.type || "");
+      if (type === "site_control" || type === "run_site_action") {
+        try {
+          await ctrl.execute(a.name || a.action || "", a.payload || {});
+        } catch {}
+      } else if (type === "set_coupon_form") {
+        const sizeInput = document.getElementById("sizeInput");
+        const riskSelect = document.getElementById("riskSelect");
+        const leagueSelect = document.getElementById("leagueSelect");
+        if (sizeInput && a.size) sizeInput.value = String(a.size);
+        if (riskSelect && a.risk) riskSelect.value = String(a.risk);
+        if (leagueSelect && a.league) leagueSelect.value = String(a.league);
+      }
+    }
   }
 })();

@@ -314,6 +314,10 @@ function deriveControlActions(message, context = {}) {
     text.includes("pack") ||
     text.includes("image+pdf+telegram") ||
     text.includes("image pdf telegram");
+  const wantsLadder =
+    text.includes("ladder") ||
+    text.includes("echelle") ||
+    text.includes("60/30/10");
 
   // Controle home
   if (page === "/" || page === "/index.html") {
@@ -336,6 +340,9 @@ function deriveControlActions(message, context = {}) {
 
   // Controle coupon
   if (page.includes("coupon")) {
+    if (wantsLadder) {
+      actions.push({ type: "site_control", name: "generate_ladder" });
+    }
     if (wantsCoupon && wantsGenerate) {
       actions.push({ type: "site_control", name: "generate_coupon" });
     }
@@ -358,6 +365,9 @@ function deriveControlActions(message, context = {}) {
     }
     if (text.includes("envoie pack") || wantsPack || (wantsCoupon && wantsGenerate && wantsTelegram)) {
       actions.push({ type: "site_control", name: "send_telegram_pack" });
+    }
+    if (wantsLadder && wantsTelegram) {
+      actions.push({ type: "site_control", name: "send_ladder_telegram" });
     }
     if (text.includes("pdf rapide")) actions.push({ type: "site_control", name: "download_pdf_quick" });
     if (text.includes("pdf detail")) actions.push({ type: "site_control", name: "download_pdf_detailed" });
@@ -420,8 +430,9 @@ function deriveControlActions(message, context = {}) {
   const priority = (a) => {
     if (a?.type === "set_coupon_form") return 10;
     if (a?.type === "site_control" && a?.name === "set_coupon_form") return 11;
+    if (a?.type === "site_control" && a?.name === "generate_ladder") return 18;
     if (a?.type === "site_control" && a?.name === "generate_coupon") return 20;
-    if (a?.type === "site_control" && (a?.name === "send_telegram_pack" || a?.name === "send_telegram_text" || a?.name === "send_telegram_image")) return 30;
+    if (a?.type === "site_control" && (a?.name === "send_ladder_telegram" || a?.name === "send_telegram_pack" || a?.name === "send_telegram_text" || a?.name === "send_telegram_image")) return 30;
     return 50;
   };
   return actions.sort((x, y) => priority(x) - priority(y));
@@ -484,6 +495,25 @@ function formatOddForTelegram(value) {
   return Number.isFinite(n) ? n.toFixed(3) : "-";
 }
 
+function formatDateTime(value) {
+  if (!value && value !== 0) return "-";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatMatchStartTimeUnix(unixSeconds) {
+  const n = Number(unixSeconds);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return formatDateTime(n * 1000);
+}
+
 function buildTelegramCouponText(payload = {}) {
   const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
   const summary = payload.summary || {};
@@ -525,13 +555,13 @@ function buildCouponImageSvg(payload = {}) {
   const riskProfile = String(payload.riskProfile || "balanced");
   const picks = coupon.slice(0, 6);
   const count = Math.max(1, picks.length || 1);
-  const cardH = 250;
-  const gap = 18;
-  const headH = 138;
-  const footH = 60;
+  const cardH = 216;
+  const gap = 16;
+  const headH = 160;
+  const footH = 48;
   const width = 1200;
   const height = headH + footH + count * cardH + (count - 1) * gap;
-  const generatedAt = new Date().toLocaleString("fr-FR");
+  const generatedAt = formatDateTime(new Date());
 
   const cards = picks.map((pick, i) => {
     const y = headH + i * (cardH + gap);
@@ -540,45 +570,24 @@ function buildCouponImageSvg(payload = {}) {
     const away = escapeXml(pick.teamAway || "Equipe 2");
     const pari = escapeXml(pick.pari || "-");
     const odd = formatOddForTelegram(pick.cote);
-    const conf = Number(pick.confiance) || 0;
-    const status = conf >= 75 ? "SAFE" : conf >= 60 ? "MODERE" : "RISQUE";
+    const matchStart = escapeXml(formatMatchStartTimeUnix(pick.startTimeUnix));
     return `
       <g transform="translate(36, ${y})">
-        <rect x="0" y="0" width="${width - 72}" height="${cardH}" rx="18" fill="rgba(13,22,43,0.92)" stroke="rgba(67,102,153,0.40)"/>
-        <rect x="0" y="0" width="${width - 72}" height="44" rx="18" fill="rgba(36,215,255,0.10)" />
-        <text x="18" y="28" fill="#b9d4ff" font-size="16" font-weight="600">${i + 1}. ${league}</text>
-        <g transform="translate(${width - 340}, 10)">
-          <rect x="0" y="0" width="132" height="24" rx="999" fill="rgba(36,215,255,0.15)" stroke="rgba(36,215,255,0.45)"/>
-          <text x="66" y="17" text-anchor="middle" fill="#b9f4ff" font-size="12" font-weight="700">Confiance ${conf}%</text>
-          <rect x="144" y="0" width="132" height="24" rx="999" fill="rgba(255,95,121,0.16)" stroke="rgba(255,95,121,0.45)"/>
-          <text x="210" y="17" text-anchor="middle" fill="#ffc5cf" font-size="12" font-weight="700">${status}</text>
-        </g>
+        <rect x="0" y="0" width="${width - 72}" height="${cardH}" rx="14" fill="rgba(10,18,35,0.95)" stroke="rgba(116,161,214,0.36)"/>
+        <rect x="0" y="0" width="${width - 72}" height="40" rx="14" fill="rgba(27,57,102,0.55)" />
+        <text x="18" y="26" fill="#d7e8ff" font-size="15" font-weight="700">${i + 1}. ${league}</text>
+        <text x="${width - 120}" y="26" text-anchor="end" fill="#b7cced" font-size="13">Match: ${matchStart}</text>
 
-        <g transform="translate(0, 46)">
-          <circle cx="90" cy="58" r="28" fill="rgba(9,15,28,0.95)" stroke="rgba(255,255,255,0.16)" stroke-width="2"/>
-          <text x="90" y="64" text-anchor="middle" fill="#d7ecff" font-size="14" font-weight="700">1</text>
-          <text x="90" y="100" text-anchor="middle" fill="#e5f0ff" font-size="16" font-weight="600">${home}</text>
+        <line x1="18" y1="56" x2="${width - 90}" y2="56" stroke="rgba(130,170,220,0.22)"/>
+        <text x="24" y="90" fill="#ffffff" font-size="30" font-weight="800">${home}</text>
+        <text x="${(width - 72) / 2}" y="90" text-anchor="middle" fill="#93b8f0" font-size="20" font-weight="700">VS</text>
+        <text x="${width - 96}" y="90" text-anchor="end" fill="#ffffff" font-size="30" font-weight="800">${away}</text>
 
-          <text x="${(width - 72) / 2}" y="66" text-anchor="middle" fill="#ffffff" font-size="42" font-weight="800">VS</text>
-
-          <circle cx="${width - 162}" cy="58" r="28" fill="rgba(9,15,28,0.95)" stroke="rgba(255,255,255,0.16)" stroke-width="2"/>
-          <text x="${width - 162}" y="64" text-anchor="middle" fill="#d7ecff" font-size="14" font-weight="700">2</text>
-          <text x="${width - 162}" y="100" text-anchor="middle" fill="#e5f0ff" font-size="16" font-weight="600">${away}</text>
-        </g>
-
-        <g transform="translate(18, 168)">
-          <rect x="0" y="0" width="352" height="58" rx="12" fill="rgba(14,25,48,0.95)" stroke="rgba(66,245,108,0.26)"/>
-          <text x="176" y="22" text-anchor="middle" fill="#9db5d6" font-size="14">Pari</text>
-          <text x="176" y="42" text-anchor="middle" fill="#f5fbff" font-size="15" font-weight="700">${pari}</text>
-
-          <rect x="380" y="0" width="352" height="58" rx="12" fill="rgba(14,25,48,0.95)" stroke="rgba(66,245,108,0.26)"/>
-          <text x="556" y="22" text-anchor="middle" fill="#9db5d6" font-size="14">Cote</text>
-          <text x="556" y="42" text-anchor="middle" fill="#42f56c" font-size="18" font-weight="800">${odd}</text>
-
-          <rect x="760" y="0" width="352" height="58" rx="12" fill="rgba(14,25,48,0.95)" stroke="rgba(66,245,108,0.26)"/>
-          <text x="936" y="22" text-anchor="middle" fill="#9db5d6" font-size="14">Lecture IA</text>
-          <text x="936" y="42" text-anchor="middle" fill="#ffd98a" font-size="15" font-weight="700">${conf}% | ${status}</text>
-        </g>
+        <rect x="18" y="112" width="${width - 108}" height="84" rx="10" fill="rgba(7,13,25,0.82)" stroke="rgba(122,162,214,0.28)"/>
+        <text x="36" y="142" fill="#aac3e9" font-size="14">Pari</text>
+        <text x="36" y="166" fill="#f4f9ff" font-size="20" font-weight="700">${pari}</text>
+        <text x="${width - 170}" y="142" text-anchor="end" fill="#aac3e9" font-size="14">Cote</text>
+        <text x="${width - 170}" y="167" text-anchor="end" fill="#5bff9a" font-size="24" font-weight="800">${odd}</text>
       </g>
     `;
   });
@@ -598,15 +607,15 @@ function buildCouponImageSvg(payload = {}) {
   </defs>
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
   <rect x="28" y="20" width="${width - 56}" height="${headH - 30}" rx="18" fill="rgba(2,10,24,0.55)" stroke="rgba(125,255,207,0.35)" />
-  <text x="48" y="64" fill="url(#head)" font-size="32" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 COUPON IMAGE</text>
+  <text x="48" y="64" fill="url(#head)" font-size="32" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 COUPON PROFESSIONNEL</text>
   <text x="48" y="92" fill="#d9ecff" font-size="18" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
     riskProfile
   )} | Selections ${Number(summary.totalSelections) || coupon.length} | Cote ${formatOddForTelegram(summary.combinedOdd)}</text>
-  <text x="48" y="114" fill="#b3cee6" font-size="14" font-family="Arial, Helvetica, sans-serif">Genere le ${escapeXml(
+  <text x="48" y="118" fill="#b3cee6" font-size="14" font-family="Arial, Helvetica, sans-serif">Genere le ${escapeXml(
     generatedAt
   )}</text>
   ${cards.join("\n")}
-  <text x="48" y="${height - 28}" fill="#cfe6ff" font-size="15" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK | Aucune combinaison n'est garantie gagnante.</text>
+  <text x="48" y="${height - 24}" fill="#cfe6ff" font-size="15" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK</text>
 </svg>`;
 }
 
@@ -1425,10 +1434,96 @@ async function sendTelegramCouponPackHandler(req, res) {
   }
 }
 
+function buildTelegramLadderText(payload = {}) {
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  const totalStake = Number(payload?.totalStake || 0);
+  const lines = [
+    "COUPON LADDER IA (60/30/10)",
+    `Total mise: ${Number.isFinite(totalStake) ? totalStake.toFixed(0) : "0"}`,
+    "",
+  ];
+  items.forEach((it, idx) => {
+    const picks = Array.isArray(it?.coupon) ? it.coupon : [];
+    const summary = it?.summary || {};
+    lines.push(
+      `${idx + 1}. ${String(it?.label || it?.profile || "TICKET").toUpperCase()} | Mise ${Number(it?.stake || 0).toFixed(0)} | Cote ${formatOddForTelegram(
+        summary?.combinedOdd
+      )} | Selections ${Number(summary?.totalSelections || picks.length)}`
+    );
+    picks.slice(0, 4).forEach((p, i) => {
+      lines.push(
+        `   ${i + 1}) ${p?.teamHome || "Equipe 1"} vs ${p?.teamAway || "Equipe 2"} | ${p?.pari || "-"} | ${formatOddForTelegram(p?.cote)}`
+      );
+    });
+    lines.push("");
+  });
+  lines.push("Aucune combinaison n'est garantie gagnante. Gestion de risque obligatoire.");
+  lines.push("Signe: SOLITAIRE HACK");
+  return lines.join("\n");
+}
+
+async function sendTelegramLadderHandler(req, res) {
+  try {
+    const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
+    if (!botToken) {
+      return res.status(500).json({
+        success: false,
+        message: "Configuration Telegram manquante (TELEGRAM_BOT_TOKEN).",
+      });
+    }
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Ladder vide. Genere d'abord les 3 tickets.",
+      });
+    }
+    const allPicks = items.flatMap((it) => (Array.isArray(it?.coupon) ? it.coupon : []));
+    const started = getStartedSelections(allPicks);
+    if (started.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Envoi Ladder bloque: un ou plusieurs matchs ont deja demarre.",
+      });
+    }
+    const chatId = await resolveTelegramChatId(botToken);
+    const text = buildTelegramLadderText(req.body || {});
+    const telegramRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        disable_web_page_preview: true,
+      }),
+    });
+    const data = await telegramRes.json();
+    if (!telegramRes.ok || !data?.ok) {
+      return res.status(502).json({
+        success: false,
+        message: "Echec envoi Ladder Telegram.",
+        error: data?.description || "API Telegram indisponible.",
+      });
+    }
+    return res.json({
+      success: true,
+      message: "Ladder envoye sur Telegram.",
+      telegramMessageId: data?.result?.message_id || null,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible d'envoyer le Ladder sur Telegram.",
+      error: error.message,
+    });
+  }
+}
+
 app.post("/api/coupon/send-telegram", sendTelegramCouponHandler);
 app.post("/api/telegram/send-coupon", sendTelegramCouponHandler);
 app.post("/api/send-telegram", sendTelegramCouponHandler);
 app.post("/api/coupon/send-telegram-pack", sendTelegramCouponPackHandler);
+app.post("/api/coupon/ladder/send-telegram", sendTelegramLadderHandler);
 
 function trimTrailingSlash(url = "") {
   return String(url || "").replace(/\/+$/, "");

@@ -123,10 +123,12 @@ h1 {
 }
 
 #generateBtn,
+#generateLadderBtn,
 #generateMultiBtn,
 #replaceWeakBtn,
 #validateBtn,
 #sendTelegramBtn,
+#sendLadderTelegramBtn,
 #sendPackBtn,
 #sendTelegramImageBtn,
 #downloadImageBtn,
@@ -147,6 +149,11 @@ h1 {
 #generateBtn {
   color: #051120;
   background: linear-gradient(90deg, #3be7ff, #8bf3ff);
+}
+
+#generateLadderBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #90f7ff, #8effb0);
 }
 
 #validateBtn {
@@ -172,6 +179,11 @@ h1 {
 #sendTelegramBtn {
   color: #051120;
   background: linear-gradient(90deg, #ffd27a, #ffe8b2);
+}
+
+#sendLadderTelegramBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #ffd77a, #ffe9b7);
 }
 
 #sendPackBtn {
@@ -210,10 +222,12 @@ h1 {
 }
 
 #generateBtn:active,
+#generateLadderBtn:active,
 #generateMultiBtn:active,
 #replaceWeakBtn:active,
 #validateBtn:active,
 #sendTelegramBtn:active,
+#sendLadderTelegramBtn:active,
 #sendPackBtn:active,
 #sendTelegramImageBtn:active,
 #downloadImageBtn:active,
@@ -223,10 +237,12 @@ h1 {
 #downloadPdfDetailedBtn:active { transform: translateY(1px); }
 
 #generateBtn::after,
+#generateLadderBtn::after,
 #generateMultiBtn::after,
 #replaceWeakBtn::after,
 #validateBtn::after,
 #sendTelegramBtn::after,
+#sendLadderTelegramBtn::after,
 #sendPackBtn::after,
 #sendTelegramImageBtn::after,
 #downloadImageBtn::after,
@@ -251,6 +267,7 @@ h1 {
 }
 
 #sendPackBtn:disabled,
+#sendLadderTelegramBtn:disabled,
 #sendTelegramImageBtn:disabled,
 #downloadImageBtn:disabled,
 #downloadStoryBtn:disabled,

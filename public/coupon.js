@@ -4,9 +4,15 @@ function formatOdd(value) {
 
 let lastCouponData = null;
 let lastCouponBackups = new Map();
+let lastLadderData = null;
 const COUPON_HISTORY_KEY = "fc25_coupon_history_v1";
 const DEFAULT_TICKET_SHIELD_DRIFT = 6;
 const MULTI_PROFILES = ["safe", "balanced", "aggressive"];
+const LADDER_PROFILES = [
+  { key: "safe", weight: 0.6, label: "SAFE" },
+  { key: "balanced", weight: 0.3, label: "BALANCED" },
+  { key: "aggressive", weight: 0.1, label: "AGGRESSIVE" },
+];
 const AUTO_COUPON_STORAGE_KEY = "fc25_auto_coupon_v1";
 const PAGE_REFRESH_COUPON_STORAGE_KEY = "fc25_coupon_refresh_minutes_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
@@ -333,6 +339,7 @@ function setResultHtml(html) {
 function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
   const packBtn = document.getElementById("sendPackBtn");
+  const ladderTgBtn = document.getElementById("sendLadderTelegramBtn");
   const imageTelegramBtn = document.getElementById("sendTelegramImageBtn");
   const stickyBtn = document.getElementById("sendTelegramBtnSticky");
   const stickyImageBtn = document.getElementById("sendTelegramImageBtnSticky");
@@ -347,6 +354,7 @@ function updateSendButtonState() {
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
   if (btn) btn.disabled = !enabled;
   if (packBtn) packBtn.disabled = !enabled;
+  if (ladderTgBtn) ladderTgBtn.disabled = !(lastLadderData && Array.isArray(lastLadderData.items) && lastLadderData.items.length > 0);
   if (imageTelegramBtn) imageTelegramBtn.disabled = !enabled;
   if (stickyBtn) stickyBtn.disabled = !enabled;
   if (stickyImageBtn) stickyImageBtn.disabled = !enabled;
@@ -358,6 +366,103 @@ function updateSendButtonState() {
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
   if (simulateBtn) simulateBtn.disabled = !enabled;
+}
+
+function renderLadderPanel(data) {
+  const panel = document.getElementById("ladderPanel");
+  if (!panel) return;
+  if (!data || !Array.isArray(data.items) || !data.items.length) {
+    panel.innerHTML = "<h3>Coupon Ladder IA</h3><p>Aucun ladder genere.</p>";
+    return;
+  }
+  const cards = data.items
+    .map((it, idx) => {
+      const summary = it.summary || {};
+      const picks = Array.isArray(it.coupon) ? it.coupon : [];
+      const preview = picks
+        .slice(0, 3)
+        .map((p) => `${p.teamHome} vs ${p.teamAway} | ${p.pari} (${formatOdd(p.cote)})`)
+        .join("<br />");
+      return `
+        <article class="risk-card">
+          <h4>${idx + 1}. ${it.label}</h4>
+          <div>Mise: ${it.stake.toFixed(0)}</div>
+          <div>Selections: ${summary.totalSelections ?? picks.length}</div>
+          <div>Cote: ${formatOdd(summary.combinedOdd)}</div>
+          <div>Confiance: ${summary.averageConfidence ?? 0}%</div>
+          <div>${preview || "Aucun pick"}</div>
+        </article>
+      `;
+    })
+    .join("");
+  panel.innerHTML = `
+    <h3>Coupon Ladder IA</h3>
+    <p>Repartition automatique 60/30/10 active.</p>
+    <div class="risk-grid">${cards}</div>
+  `;
+}
+
+async function generateLadderCoupons() {
+  const panel = document.getElementById("ladderPanel");
+  const league = document.getElementById("leagueSelect")?.value || "all";
+  const size = Math.max(1, Math.min(Number(document.getElementById("sizeInput")?.value) || 3, 12));
+  const totalStake = getStakeValue();
+  if (panel) panel.innerHTML = "<h3>Coupon Ladder IA</h3><p>Generation en cours...</p>";
+  const items = [];
+  for (const profile of LADDER_PROFILES) {
+    let data;
+    try {
+      const res = await fetch(`/api/coupon?size=${size}&league=${encodeURIComponent(league)}&risk=${profile.key}`, {
+        cache: "no-store",
+      });
+      data = await readJsonSafe(res);
+      if (!res.ok || !data.success) throw new Error(data.error || data.message || "Erreur API coupon");
+    } catch {
+      data = await generateCouponFallback(size, league, profile.key);
+    }
+    const stake = Number((totalStake * profile.weight).toFixed(2));
+    items.push({
+      profile: profile.key,
+      label: profile.label,
+      weight: profile.weight,
+      stake,
+      coupon: Array.isArray(data.coupon) ? data.coupon : [],
+      summary: data.summary || createCouponSummary(Array.isArray(data.coupon) ? data.coupon : []),
+    });
+  }
+  lastLadderData = {
+    at: new Date().toISOString(),
+    totalStake,
+    items,
+  };
+  renderLadderPanel(lastLadderData);
+  updateSendButtonState();
+}
+
+async function sendLadderToTelegram() {
+  const panel = document.getElementById("validation");
+  if (!lastLadderData || !Array.isArray(lastLadderData.items) || !lastLadderData.items.length) {
+    if (panel) panel.innerHTML = "<p>Genere d'abord un Ladder avant envoi Telegram.</p>";
+    return;
+  }
+  if (panel) panel.innerHTML = "<p>Envoi Ladder vers Telegram...</p>";
+  try {
+    const res = await fetch("/api/coupon/ladder/send-telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastLadderData),
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok || !data?.success) throw new Error(data?.error || data?.message || "Erreur envoi Ladder Telegram");
+    if (panel) panel.innerHTML = `<p class="ticket-status ticket-ok">${data.message || "Ladder envoye sur Telegram."}</p>`;
+    addHistoryEntry({
+      type: "telegram",
+      at: new Date().toISOString(),
+      note: `Ladder Telegram envoye (${lastLadderData.items.length} tickets)`,
+    });
+  } catch (error) {
+    if (panel) panel.innerHTML = `<p>Erreur Ladder Telegram: ${error.message}</p>`;
+  }
 }
 
 async function sendCouponPackToTelegram() {
@@ -1226,11 +1331,13 @@ async function replaceWeakSelection() {
 }
 
 const generateBtn = document.getElementById("generateBtn");
+const generateLadderBtn = document.getElementById("generateLadderBtn");
 const generateMultiBtn = document.getElementById("generateMultiBtn");
 const replaceWeakBtn = document.getElementById("replaceWeakBtn");
 const simulateBankrollBtn = document.getElementById("simulateBankrollBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
+const sendLadderTelegramBtn = document.getElementById("sendLadderTelegramBtn");
 const sendPackBtn = document.getElementById("sendPackBtn");
 const sendTelegramImageBtn = document.getElementById("sendTelegramImageBtn");
 const downloadImageBtn = document.getElementById("downloadImageBtn");
@@ -1245,6 +1352,7 @@ const sendTelegramImageBtnSticky = document.getElementById("sendTelegramImageBtn
 const downloadPdfBtnSticky = document.getElementById("downloadPdfBtnSticky");
 
 if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
+if (generateLadderBtn) generateLadderBtn.addEventListener("click", generateLadderCoupons);
 if (generateMultiBtn) generateMultiBtn.addEventListener("click", renderMultiStrategy);
 if (replaceWeakBtn) replaceWeakBtn.addEventListener("click", replaceWeakSelection);
 if (simulateBankrollBtn) simulateBankrollBtn.addEventListener("click", simulateBankrollBeforeValidation);
@@ -1261,6 +1369,9 @@ if (sendTelegramBtn) {
     e.preventDefault();
     sendCouponToTelegram(false);
   });
+}
+if (sendLadderTelegramBtn) {
+  sendLadderTelegramBtn.addEventListener("click", sendLadderToTelegram);
 }
 if (sendPackBtn) {
   sendPackBtn.addEventListener("click", sendCouponPackToTelegram);
@@ -1353,11 +1464,13 @@ function registerCouponSiteControl() {
     page: "coupon",
     actions: [
       "generate_coupon",
+      "generate_ladder",
       "generate_multi",
       "validate_ticket",
       "replace_weak_pick",
       "simulate_bankroll",
       "send_telegram_text",
+      "send_ladder_telegram",
       "send_telegram_image",
       "send_telegram_pack",
       "download_image",
@@ -1372,11 +1485,13 @@ function registerCouponSiteControl() {
     async execute(name, payload = {}) {
       const action = String(name || "").toLowerCase();
       if (action === "generate_coupon") return generateCoupon();
+      if (action === "generate_ladder") return generateLadderCoupons();
       if (action === "generate_multi") return renderMultiStrategy();
       if (action === "validate_ticket") return validateTicket();
       if (action === "replace_weak_pick") return replaceWeakSelection();
       if (action === "simulate_bankroll") return simulateBankrollBeforeValidation();
       if (action === "send_telegram_text") return sendCouponToTelegram(false);
+      if (action === "send_ladder_telegram") return sendLadderToTelegram();
       if (action === "send_telegram_image") return sendCouponToTelegram(true);
       if (action === "send_telegram_pack") return sendCouponPackToTelegram();
       if (action === "download_image") return downloadCouponImage("default");
