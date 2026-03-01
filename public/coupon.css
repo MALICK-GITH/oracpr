@@ -128,6 +128,7 @@ h1 {
 #replaceWeakBtn,
 #validateBtn,
 #sendTelegramBtn,
+#sendTelegramMiniBtn,
 #sendLadderTelegramBtn,
 #sendPackBtn,
 #sendTelegramImageBtn,
@@ -137,7 +138,8 @@ h1 {
 #downloadPdfQuickBtn,
 #downloadPdfBtn,
 #downloadPdfDetailedBtn,
-#analyzeJournalBtn {
+#analyzeJournalBtn,
+#replayJournalBtn {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   padding: 0.56rem 0.82rem;
@@ -181,6 +183,11 @@ h1 {
 #sendTelegramBtn {
   color: #051120;
   background: linear-gradient(90deg, #ffd27a, #ffe8b2);
+}
+
+#sendTelegramMiniBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #ffe39a, #fff1cb);
 }
 
 #sendLadderTelegramBtn {
@@ -233,12 +240,18 @@ h1 {
   background: linear-gradient(90deg, #f8df9a, #fff0c8);
 }
 
+#replayJournalBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #f3d9ff, #fbeeff);
+}
+
 #generateBtn:active,
 #generateLadderBtn:active,
 #generateMultiBtn:active,
 #replaceWeakBtn:active,
 #validateBtn:active,
 #sendTelegramBtn:active,
+#sendTelegramMiniBtn:active,
 #sendLadderTelegramBtn:active,
 #sendPackBtn:active,
 #sendTelegramImageBtn:active,
@@ -248,7 +261,8 @@ h1 {
 #downloadPdfQuickBtn:active,
 #downloadPdfBtn:active,
 #downloadPdfDetailedBtn:active,
-#analyzeJournalBtn:active { transform: translateY(1px); }
+#analyzeJournalBtn:active,
+#replayJournalBtn:active { transform: translateY(1px); }
 
 #generateBtn::after,
 #generateLadderBtn::after,
@@ -256,6 +270,7 @@ h1 {
 #replaceWeakBtn::after,
 #validateBtn::after,
 #sendTelegramBtn::after,
+#sendTelegramMiniBtn::after,
 #sendLadderTelegramBtn::after,
 #sendPackBtn::after,
 #sendTelegramImageBtn::after,
@@ -265,7 +280,8 @@ h1 {
 #downloadPdfQuickBtn::after,
 #downloadPdfBtn::after,
 #downloadPdfDetailedBtn::after,
-#analyzeJournalBtn::after {
+#analyzeJournalBtn::after,
+#replayJournalBtn::after {
   content: "";
   position: absolute;
   top: -120%;
@@ -285,6 +301,7 @@ h1 {
 #sendPackBtn:disabled,
 #sendLadderTelegramBtn:disabled,
 #sendTelegramImageBtn:disabled,
+#sendTelegramMiniBtn:disabled,
 #printA4Btn:disabled,
 #downloadImageBtn:disabled,
 #downloadStoryBtn:disabled,
@@ -292,7 +309,8 @@ h1 {
 #simulateBankrollBtn:disabled,
 #downloadPdfQuickBtn:disabled,
 #downloadPdfBtn:disabled,
-#analyzeJournalBtn:disabled {
+#analyzeJournalBtn:disabled,
+#replayJournalBtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }

@@ -73,6 +73,14 @@
           <span>Seuil drift (%)</span>
           <input id="driftInput" type="number" min="2" max="25" step="1" value="6" />
         </label>
+        <label>
+          <span>Freeze ticket (min)</span>
+          <input id="freezeMinutesInput" type="number" min="0" max="30" step="1" value="3" />
+        </label>
+        <label class="switch-line">
+          <span>Anti-correlation auto</span>
+          <input id="antiCorrelationSwitch" type="checkbox" checked />
+        </label>
         <div class="actions">
           <button id="generateBtn" type="button">Generer Coupon</button>
           <button id="generateLadderBtn" type="button">Coupon Ladder IA</button>
@@ -81,6 +89,7 @@
           <button id="simulateBankrollBtn" type="button" disabled>Simuler Bankroll</button>
           <button id="validateBtn" type="button">Valider Ticket Pro</button>
           <button id="sendTelegramBtn" type="button" disabled>Envoyer Telegram</button>
+          <button id="sendTelegramMiniBtn" type="button" disabled>Telegram Mini</button>
           <button id="sendLadderTelegramBtn" type="button" disabled>Ladder -> Telegram</button>
           <button id="sendPackBtn" type="button" disabled>Envoi Groupe 1-Clic</button>
           <button id="sendTelegramImageBtn" type="button" disabled>Telegram Image</button>
@@ -91,6 +100,7 @@
           <button id="downloadPdfBtn" type="button" disabled>PDF Resume</button>
           <button id="downloadPdfDetailedBtn" type="button" disabled>PDF Detaille</button>
           <button id="analyzeJournalBtn" type="button">Analyser Journal</button>
+          <button id="replayJournalBtn" type="button">Replay Journal</button>
         </div>
       </section>
 

@@ -358,6 +358,9 @@ function deriveControlActions(message, context = {}) {
     if (text.includes("simule bankroll")) {
       actions.push({ type: "site_control", name: "simulate_bankroll" });
     }
+    if (text.includes("telegram mini") || text.includes("mini telegram") || text.includes("tg mini")) {
+      actions.push({ type: "site_control", name: "send_telegram_mini" });
+    }
     if (text.includes("envoie telegram image")) {
       actions.push({ type: "site_control", name: "send_telegram_image" });
     } else if (text.includes("envoie telegram") || wantsTelegram) {
@@ -377,6 +380,9 @@ function deriveControlActions(message, context = {}) {
     }
     if (text.includes("journal performance") || text.includes("analyser journal")) {
       actions.push({ type: "site_control", name: "analyze_journal" });
+    }
+    if (text.includes("replay journal") || text.includes("journal replay")) {
+      actions.push({ type: "site_control", name: "replay_journal" });
     }
     if (text.includes("image coupon")) actions.push({ type: "site_control", name: "download_image" });
     if (text.includes("story")) actions.push({ type: "site_control", name: "download_story" });
@@ -438,7 +444,7 @@ function deriveControlActions(message, context = {}) {
     if (a?.type === "site_control" && a?.name === "set_coupon_form") return 11;
     if (a?.type === "site_control" && a?.name === "generate_ladder") return 18;
     if (a?.type === "site_control" && a?.name === "generate_coupon") return 20;
-    if (a?.type === "site_control" && (a?.name === "send_ladder_telegram" || a?.name === "send_telegram_pack" || a?.name === "send_telegram_text" || a?.name === "send_telegram_image")) return 30;
+    if (a?.type === "site_control" && (a?.name === "send_ladder_telegram" || a?.name === "send_telegram_pack" || a?.name === "send_telegram_text" || a?.name === "send_telegram_mini" || a?.name === "send_telegram_image")) return 30;
     return 50;
   };
   return actions.sort((x, y) => priority(x) - priority(y));
@@ -524,6 +530,17 @@ function buildTelegramCouponText(payload = {}) {
   const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
   const summary = payload.summary || {};
   const riskProfile = String(payload.riskProfile || "balanced");
+  if (payload?.mini) {
+    const top = coupon.slice(0, 3);
+    const lines = [
+      `FC25 MINI | ${riskProfile.toUpperCase()}`,
+      `Sel: ${Number(summary.totalSelections) || coupon.length} | Cote: ${formatOddForTelegram(summary.combinedOdd)}`,
+      `Conf: ${Number(summary.averageConfidence) || 0}%`,
+      ...top.map((p, i) => `${i + 1}) ${p?.teamHome || "E1"} vs ${p?.teamAway || "E2"} | ${formatOddForTelegram(p?.cote)}`),
+      "Signe: SOLITAIRE HACK",
+    ];
+    return lines.slice(0, 6).join("\n");
+  }
   const lines = [
     "COUPON OPTIMISE FC 25",
     "Source: FC 25 Virtual Predictions",

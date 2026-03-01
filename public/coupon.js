@@ -16,6 +16,8 @@ const LADDER_PROFILES = [
 const AUTO_COUPON_STORAGE_KEY = "fc25_auto_coupon_v1";
 const PAGE_REFRESH_COUPON_STORAGE_KEY = "fc25_coupon_refresh_minutes_v1";
 const PERFORMANCE_LOG_KEY = "fc25_performance_log_v1";
+const ANTI_CORRELATION_KEY = "fc25_anti_correlation_v1";
+const FREEZE_MINUTES_KEY = "fc25_freeze_minutes_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 let pageRefreshCouponIntervalId = null;
 const stabilityCache = new Map();
@@ -356,6 +358,7 @@ function setResultHtml(html) {
 
 function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
+  const miniBtn = document.getElementById("sendTelegramMiniBtn");
   const packBtn = document.getElementById("sendPackBtn");
   const ladderTgBtn = document.getElementById("sendLadderTelegramBtn");
   const imageTelegramBtn = document.getElementById("sendTelegramImageBtn");
@@ -371,14 +374,16 @@ function updateSendButtonState() {
   const pdfStickyBtn = document.getElementById("downloadPdfBtnSticky");
   const simulateBtn = document.getElementById("simulateBankrollBtn");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
+  const frozen = enabled && isCouponFrozen(lastCouponData.coupon);
   if (btn) btn.disabled = !enabled;
+  if (miniBtn) miniBtn.disabled = !enabled;
   if (packBtn) packBtn.disabled = !enabled;
   if (ladderTgBtn) ladderTgBtn.disabled = !(lastLadderData && Array.isArray(lastLadderData.items) && lastLadderData.items.length > 0);
   if (imageTelegramBtn) imageTelegramBtn.disabled = !enabled;
   if (printBtn) printBtn.disabled = !enabled;
   if (stickyBtn) stickyBtn.disabled = !enabled;
   if (stickyImageBtn) stickyImageBtn.disabled = !enabled;
-  if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled;
+  if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled || frozen;
   if (imageBtn) imageBtn.disabled = !enabled;
   if (storyBtn) storyBtn.disabled = !enabled;
   if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
@@ -386,6 +391,30 @@ function updateSendButtonState() {
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
   if (simulateBtn) simulateBtn.disabled = !enabled;
+}
+
+function getFreezeMinutes() {
+  const input = document.getElementById("freezeMinutesInput");
+  const raw = input?.value ?? localStorage.getItem(FREEZE_MINUTES_KEY);
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 3;
+  return Math.max(0, Math.min(30, Math.floor(n)));
+}
+
+function setFreezeMinutes(value) {
+  const safe = Math.max(0, Math.min(30, Math.floor(Number(value) || 3)));
+  localStorage.setItem(FREEZE_MINUTES_KEY, String(safe));
+  return safe;
+}
+
+function isAntiCorrelationEnabled() {
+  const v = localStorage.getItem(ANTI_CORRELATION_KEY);
+  if (v == null) return true;
+  return v === "1";
+}
+
+function setAntiCorrelationEnabled(value) {
+  localStorage.setItem(ANTI_CORRELATION_KEY, value ? "1" : "0");
 }
 
 function renderLadderPanel(data) {
@@ -440,14 +469,15 @@ async function generateLadderCoupons() {
     } catch {
       data = await generateCouponFallback(size, league, profile.key);
     }
+    const anti = applyAntiCorrelation(Array.isArray(data?.coupon) ? data.coupon : [], size);
     const stake = Number((totalStake * profile.weight).toFixed(2));
     items.push({
       profile: profile.key,
       label: profile.label,
       weight: profile.weight,
       stake,
-      coupon: Array.isArray(data.coupon) ? data.coupon : [],
-      summary: data.summary || createCouponSummary(Array.isArray(data.coupon) ? data.coupon : []),
+      coupon: anti.coupon,
+      summary: createCouponSummary(anti.coupon),
     });
   }
   lastLadderData = {
@@ -599,6 +629,60 @@ function renderPerformanceJournal() {
   if (riskSelect && entries.length >= 8 && MULTI_PROFILES.includes(bestProfile)) {
     riskSelect.value = bestProfile;
   }
+}
+
+function isoWeekKey(dateIso) {
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return "unknown";
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return `${dt.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+function renderPerformanceReplay() {
+  const panel = document.getElementById("performancePanel");
+  if (!panel) return;
+  const entries = readPerformanceLog();
+  if (!entries.length) {
+    panel.innerHTML = "<h3>Journal Performance</h3><p>Aucune donnee a rejouer.</p>";
+    return;
+  }
+
+  const dayMap = new Map();
+  const weekMap = new Map();
+  for (const e of entries) {
+    const dayKey = String(e?.at || "").slice(0, 10) || "unknown";
+    const weekKey = isoWeekKey(e?.at);
+    if (!dayMap.has(dayKey)) dayMap.set(dayKey, { n: 0, q: 0 });
+    if (!weekMap.has(weekKey)) weekMap.set(weekKey, { n: 0, q: 0 });
+    dayMap.get(dayKey).n += 1;
+    dayMap.get(dayKey).q += Number(e.quality) || 0;
+    weekMap.get(weekKey).n += 1;
+    weekMap.get(weekKey).q += Number(e.quality) || 0;
+  }
+
+  const toRows = (map) =>
+    [...map.entries()]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .slice(-8)
+      .map(([k, v], i, arr) => {
+        const score = Number(((v.q / Math.max(1, v.n)) * 100).toFixed(1));
+        const prev = i > 0 ? Number(((arr[i - 1][1].q / Math.max(1, arr[i - 1][1].n)) * 100).toFixed(1)) : score;
+        const trend = score > prev ? "UP" : score < prev ? "DOWN" : "FLAT";
+        return `<li><strong>${k}</strong> | Score: ${score}% | Volume: ${v.n} | Trend: ${trend}</li>`;
+      })
+      .join("");
+
+  panel.innerHTML = `
+    <h3>Replay Journal Performance</h3>
+    <p><strong>Replay quotidien (8 derniers jours)</strong></p>
+    <ul class="validation-list">${toRows(dayMap) || "<li>Aucune donnee</li>"}</ul>
+    <p><strong>Replay hebdo (8 dernieres semaines)</strong></p>
+    <ul class="validation-list">${toRows(weekMap) || "<li>Aucune donnee</li>"}</ul>
+  `;
 }
 
 async function openPrintA4Mode() {
@@ -850,6 +934,7 @@ function renderCoupon(data) {
         <span>Ligue: ${p.league || "Non specifiee"}</span>
         <span>${p.pari}</span>
         <span>Cote ${formatOdd(p.cote)} | Confiance ${p.confiance}%</span>
+        <span>EV ${computePickEV(p) >= 0 ? "+" : ""}${computePickEV(p).toFixed(3)}</span>
         <div class="confidence-track"><i style="width:${Math.max(4, Math.min(100, Number(p.confiance) || 0))}%"></i><em>${Number(
           p.confiance || 0
         ).toFixed(0)}%</em></div>
@@ -862,8 +947,10 @@ function renderCoupon(data) {
     .join("");
 
   const insights = computeCouponInsights(picks, data.riskProfile || "balanced");
+  const freeze = isCouponFrozen(picks);
   const stake = getStakeValue();
   const pay = payoutFromStake(stake, data.summary?.combinedOdd);
+  const couponEv = computeCouponEV(picks);
 
   setResultHtml(`
     <h3>Coupon Optimise</h3>
@@ -877,6 +964,8 @@ function renderCoupon(data) {
       <span>Risque correlation: ${insights.correlationRisk}%</span>
       <span>Deadline: ${insights.minStartMinutes == null ? "-" : formatMinutes(insights.minStartMinutes)}</span>
       <span>Mise ${stake.toFixed(0)} => Retour ${pay.payout.toFixed(2)} | Net ${pay.net.toFixed(2)}</span>
+      <span>EV total: ${couponEv >= 0 ? "+" : ""}${couponEv.toFixed(3)}</span>
+      <span>Freeze ticket: ${freeze ? "ACTIF" : "OFF"} (${getFreezeMinutes()} min)</span>
     </div>
     <ol>${items}</ol>
     ${
@@ -954,13 +1043,15 @@ async function renderMultiStrategy() {
       } catch {
         data = await generateCouponFallback(size, league, profile);
       }
-      const picks = Array.isArray(data.coupon) ? data.coupon : [];
+      const anti = applyAntiCorrelation(Array.isArray(data?.coupon) ? data.coupon : [], size);
+      const picks = anti.coupon;
       const insights = computeCouponInsights(picks, profile);
+      const evTotal = computeCouponEV(picks);
       const odd = Number(data.summary?.combinedOdd || 1);
       const p = clamp(Number(data.summary?.averageConfidence || 0) / 100, 0.03, 0.97);
       const expectedNet = Number((stake * (odd * p - 1)).toFixed(2));
       const riskIndex = clamp(Math.round((100 - insights.qualityScore) * 0.55 + insights.correlationRisk * 0.45), 1, 99);
-      ranking.push({ profile, expectedNet, riskIndex, quality: insights.qualityScore });
+      ranking.push({ profile, expectedNet, riskIndex, quality: insights.qualityScore, evTotal });
       cards.push(`
         <article class="risk-card">
           <h4>${profile.toUpperCase()}</h4>
@@ -968,6 +1059,7 @@ async function renderMultiStrategy() {
           <div>Cote: ${formatOdd(data.summary?.combinedOdd)}</div>
           <div>Confiance: ${data.summary?.averageConfidence ?? 0}%</div>
           <div>Qualite: ${insights.qualityScore}/100</div>
+          <div>EV total: ${evTotal >= 0 ? "+" : ""}${evTotal.toFixed(3)}</div>
           <div>Gain attendu (net): ${expectedNet.toFixed(2)}</div>
           <div>Indice risque: ${riskIndex}/100</div>
           <div>Deadline: ${insights.minStartMinutes == null ? "-" : formatMinutes(insights.minStartMinutes)}</div>
@@ -1017,6 +1109,48 @@ function createCouponSummary(coupon = []) {
     ? Number((coupon.reduce((acc, x) => acc + Number(x.confiance || 0), 0) / totalSelections).toFixed(1))
     : 0;
   return { totalSelections, combinedOdd, averageConfidence };
+}
+
+function applyAntiCorrelation(coupon = [], targetSize = 3) {
+  if (!Array.isArray(coupon) || !coupon.length || !isAntiCorrelationEnabled()) {
+    return { coupon: Array.isArray(coupon) ? coupon : [], removed: 0, maxPerLeague: null };
+  }
+  const safeTarget = Math.max(1, Number(targetSize) || coupon.length || 1);
+  const maxPerLeague = Math.max(1, Math.ceil(safeTarget / 3));
+  const sorted = [...coupon].sort((a, b) => Number(b?.confiance || 0) - Number(a?.confiance || 0));
+  const counts = new Map();
+  const filtered = [];
+  let removed = 0;
+  for (const pick of sorted) {
+    const league = String(pick?.league || "AUTRE");
+    const c = counts.get(league) || 0;
+    if (c >= maxPerLeague) {
+      removed += 1;
+      continue;
+    }
+    counts.set(league, c + 1);
+    filtered.push(pick);
+    if (filtered.length >= safeTarget) break;
+  }
+  return { coupon: filtered, removed, maxPerLeague };
+}
+
+function computePickEV(pick) {
+  const p = clamp(Number(pick?.confiance || 0) / 100, 0.01, 0.99);
+  const odd = Math.max(1, Number(pick?.cote || 1));
+  return Number((odd * p - 1).toFixed(3));
+}
+
+function computeCouponEV(coupon = []) {
+  return Number((coupon.reduce((acc, p) => acc + computePickEV(p), 0)).toFixed(3));
+}
+
+function isCouponFrozen(coupon = [], freezeMinutes = getFreezeMinutes()) {
+  if (!Array.isArray(coupon) || !coupon.length) return false;
+  const insights = computeCouponInsights(coupon, lastCouponData?.riskProfile || "balanced");
+  const minStart = Number(insights?.minStartMinutes);
+  if (!Number.isFinite(minStart)) return false;
+  return minStart <= Number(freezeMinutes);
 }
 
 function applyAdaptiveParlay(report) {
@@ -1104,14 +1238,14 @@ function renderValidation(report) {
   });
 }
 
-async function sendCouponToTelegram(sendImage = false) {
+async function sendCouponToTelegram(sendImage = false, mini = false) {
   const panel = document.getElementById("validation");
   if (!lastCouponData || !Array.isArray(lastCouponData.coupon) || lastCouponData.coupon.length === 0) {
     if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant envoi Telegram.</p>";
     return;
   }
 
-  if (panel) panel.innerHTML = `<p>Envoi Telegram ${sendImage ? "image" : "texte"} en cours...</p>`;
+  if (panel) panel.innerHTML = `<p>Envoi Telegram ${mini ? "mini" : sendImage ? "image" : "texte"} en cours...</p>`;
 
   try {
     await replaceStartedSelectionsBeforeTelegram();
@@ -1123,6 +1257,7 @@ async function sendCouponToTelegram(sendImage = false) {
       summary: lastCouponData.summary || {},
       riskProfile: lastCouponData.riskProfile || "balanced",
       sendImage,
+      mini: Boolean(mini && !sendImage),
       imageFormat: sendImage ? "png" : "png",
       ticketShield: {
         driftThresholdPercent: getDriftThreshold(),
@@ -1147,14 +1282,14 @@ async function sendCouponToTelegram(sendImage = false) {
       panel.innerHTML = `
         <h3>Envoi Telegram</h3>
         <p class="ticket-status ticket-ok">ENVOI REUSSI</p>
-        <p>${data.message || `Coupon ${sendImage ? "image" : "texte"} envoye sur Telegram.`}</p>
+        <p>${data.message || `Coupon ${mini ? "mini" : sendImage ? "image" : "texte"} envoye sur Telegram.`}</p>
         <p>Ticket Shield IA: drift ${getDriftThreshold()}% | Remplacements: ${adapted.replaced}</p>
       `;
     }
     addHistoryEntry({
       type: "telegram",
       at: new Date().toISOString(),
-      note: `Coupon ${sendImage ? "image" : "texte"} envoye Telegram | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      note: `Coupon ${mini ? "mini" : sendImage ? "image" : "texte"} envoye Telegram | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur Telegram: ${error.message}</p>`;
@@ -1323,10 +1458,10 @@ async function generateCoupon() {
   sizeInput.value = String(size);
   setResultHtml("<p>Generation du coupon en cours...</p>");
 
-  try {
-    const league = leagueSelect.value || "all";
-    const risk = document.getElementById("riskSelect")?.value || "balanced";
-    let data;
+    try {
+      const league = leagueSelect.value || "all";
+      const risk = document.getElementById("riskSelect")?.value || "balanced";
+      let data;
     try {
       const res = await fetch(
         `/api/coupon?size=${size}&league=${encodeURIComponent(league)}&risk=${encodeURIComponent(risk)}`,
@@ -1334,13 +1469,22 @@ async function generateCoupon() {
       );
       data = await readJsonSafe(res);
       if (!res.ok || !data.success) throw new Error(data.error || data.message || "Erreur /api/coupon");
-    } catch (primaryErr) {
-      data = await generateCouponFallback(size, league, risk);
-      if (!data?.success) throw primaryErr;
-    }
-    renderCoupon(data);
-    lastCouponBackups = await buildBackupPlan(Array.isArray(data?.coupon) ? data.coupon : [], risk);
-  } catch (error) {
+      } catch (primaryErr) {
+        data = await generateCouponFallback(size, league, risk);
+        if (!data?.success) throw primaryErr;
+      }
+      const anti = applyAntiCorrelation(Array.isArray(data?.coupon) ? data.coupon : [], size);
+      data = {
+        ...data,
+        coupon: anti.coupon,
+        summary: createCouponSummary(anti.coupon),
+        warning: anti.removed > 0
+          ? `Anti-correlation actif: ${anti.removed} pick(s) retire(s), max ${anti.maxPerLeague} par ligue. ${data?.warning || ""}`
+          : data?.warning,
+      };
+      renderCoupon(data);
+      lastCouponBackups = await buildBackupPlan(Array.isArray(data?.coupon) ? data.coupon : [], risk);
+    } catch (error) {
     setResultHtml(`<p>Erreur: ${error.message}</p>`);
   }
 }
@@ -1369,6 +1513,9 @@ async function enforceTicketShield(actionLabel = "action") {
   }
 
   if (adapted.replaced > 0) {
+    if (isCouponFrozen(lastCouponData.coupon)) {
+      throw new Error(`Freeze actif: adaptation Ticket Shield bloquee (<= ${getFreezeMinutes()} min).`);
+    }
     adapted.coupon = adapted.coupon.map((x) => {
       const b = lastCouponBackups.get(String(x.matchId));
       return b && String(x.pari) === String(lastCouponData?.coupon?.find((c) => String(c.matchId) === String(x.matchId))?.pari)
@@ -1604,6 +1751,10 @@ async function replaceWeakSelection() {
     if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant remplacement.</p>";
     return;
   }
+  if (isCouponFrozen(lastCouponData.coupon)) {
+    if (panel) panel.innerHTML = `<p>Freeze actif: remplacement bloque (<= ${getFreezeMinutes()} min avant debut).</p>`;
+    return;
+  }
   if (panel) panel.innerHTML = "<p>Recherche du pick le plus faible...</p>";
   try {
     const picks = [...lastCouponData.coupon];
@@ -1664,11 +1815,13 @@ const replaceWeakBtn = document.getElementById("replaceWeakBtn");
 const simulateBankrollBtn = document.getElementById("simulateBankrollBtn");
 const validateBtn = document.getElementById("validateBtn");
 const sendTelegramBtn = document.getElementById("sendTelegramBtn");
+const sendTelegramMiniBtn = document.getElementById("sendTelegramMiniBtn");
 const sendLadderTelegramBtn = document.getElementById("sendLadderTelegramBtn");
 const sendPackBtn = document.getElementById("sendPackBtn");
 const sendTelegramImageBtn = document.getElementById("sendTelegramImageBtn");
 const printA4Btn = document.getElementById("printA4Btn");
 const analyzeJournalBtn = document.getElementById("analyzeJournalBtn");
+const replayJournalBtn = document.getElementById("replayJournalBtn");
 const downloadImageBtn = document.getElementById("downloadImageBtn");
 const downloadStoryBtn = document.getElementById("downloadStoryBtn");
 const downloadPdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
@@ -1699,6 +1852,9 @@ if (sendTelegramBtn) {
     sendCouponToTelegram(false);
   });
 }
+if (sendTelegramMiniBtn) {
+  sendTelegramMiniBtn.addEventListener("click", () => sendCouponToTelegram(false, true));
+}
 if (sendLadderTelegramBtn) {
   sendLadderTelegramBtn.addEventListener("click", sendLadderToTelegram);
 }
@@ -1713,6 +1869,9 @@ if (printA4Btn) {
 }
 if (analyzeJournalBtn) {
   analyzeJournalBtn.addEventListener("click", renderPerformanceJournal);
+}
+if (replayJournalBtn) {
+  replayJournalBtn.addEventListener("click", renderPerformanceReplay);
 }
 if (downloadImageBtn) {
   downloadImageBtn.addEventListener("click", () => downloadCouponImage("default"));
@@ -1768,6 +1927,37 @@ async function initCouponPage() {
     });
   }
 
+  const antiSwitch = document.getElementById("antiCorrelationSwitch");
+  if (antiSwitch) {
+    antiSwitch.checked = isAntiCorrelationEnabled();
+    antiSwitch.addEventListener("change", () => {
+      setAntiCorrelationEnabled(antiSwitch.checked);
+      if (lastCouponData?.coupon?.length) {
+        const size = Math.max(1, Math.min(Number(document.getElementById("sizeInput")?.value) || lastCouponData.coupon.length, 12));
+        const anti = applyAntiCorrelation(lastCouponData.coupon, size);
+        lastCouponData = {
+          ...lastCouponData,
+          coupon: anti.coupon,
+          summary: createCouponSummary(anti.coupon),
+          warning: anti.removed > 0
+            ? `Anti-correlation actif: ${anti.removed} pick(s) retire(s), max ${anti.maxPerLeague} par ligue.`
+            : lastCouponData.warning,
+        };
+        renderCoupon(lastCouponData);
+      }
+    });
+  }
+
+  const freezeInput = document.getElementById("freezeMinutesInput");
+  if (freezeInput) {
+    freezeInput.value = String(getFreezeMinutes());
+    freezeInput.addEventListener("change", () => {
+      const m = setFreezeMinutes(freezeInput.value);
+      freezeInput.value = String(m);
+      updateSendButtonState();
+    });
+  }
+
   await loadLeagues();
   renderHistory();
   renderPerformanceJournal();
@@ -1806,11 +1996,13 @@ function registerCouponSiteControl() {
       "replace_weak_pick",
       "simulate_bankroll",
       "send_telegram_text",
+      "send_telegram_mini",
       "send_ladder_telegram",
       "send_telegram_image",
       "send_telegram_pack",
       "print_a4",
       "analyze_journal",
+      "replay_journal",
       "download_image",
       "download_story",
       "download_pdf_quick",
@@ -1819,6 +2011,8 @@ function registerCouponSiteControl() {
       "set_coupon_form",
       "set_auto_coupon",
       "set_refresh_minutes",
+      "set_anti_correlation",
+      "set_freeze_minutes",
     ],
     async execute(name, payload = {}) {
       const action = String(name || "").toLowerCase();
@@ -1829,11 +2023,13 @@ function registerCouponSiteControl() {
       if (action === "replace_weak_pick") return replaceWeakSelection();
       if (action === "simulate_bankroll") return simulateBankrollBeforeValidation();
       if (action === "send_telegram_text") return sendCouponToTelegram(false);
+      if (action === "send_telegram_mini") return sendCouponToTelegram(false, true);
       if (action === "send_ladder_telegram") return sendLadderToTelegram();
       if (action === "send_telegram_image") return sendCouponToTelegram(true);
       if (action === "send_telegram_pack") return sendCouponPackToTelegram();
       if (action === "print_a4") return openPrintA4Mode();
       if (action === "analyze_journal") return renderPerformanceJournal();
+      if (action === "replay_journal") return renderPerformanceReplay();
       if (action === "download_image") return downloadCouponImage("default");
       if (action === "download_story") return downloadCouponImage("story");
       if (action === "download_pdf_quick") return downloadCouponPdf("quick");
@@ -1851,6 +2047,20 @@ function registerCouponSiteControl() {
         const input = document.getElementById("refreshMinutesCouponInput");
         if (input) input.value = String(m);
         startCouponPageRefreshTimer(m);
+        return true;
+      }
+      if (action === "set_anti_correlation") {
+        const enabled = payload?.enabled !== false;
+        setAntiCorrelationEnabled(enabled);
+        const sw = document.getElementById("antiCorrelationSwitch");
+        if (sw) sw.checked = enabled;
+        return true;
+      }
+      if (action === "set_freeze_minutes") {
+        const m = setFreezeMinutes(payload?.minutes);
+        const input = document.getElementById("freezeMinutesInput");
+        if (input) input.value = String(m);
+        updateSendButtonState();
         return true;
       }
       if (action === "set_coupon_form") {
