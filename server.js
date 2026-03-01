@@ -904,9 +904,45 @@ function buildCouponPdfDetailedLines(payload = {}) {
 
 function getStartedSelections(coupon = []) {
   const nowSec = Math.floor(Date.now() / 1000);
+  const norm = (v) =>
+    String(v || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+
+  const isPreMatchBySignals = (pick) => {
+    const statusCode = Number(pick?.statusCode || 0);
+    const info = norm(pick?.infoText || "");
+    const status = norm(pick?.statusText || "");
+    const phase = norm(pick?.phase || "");
+    const preByCode = statusCode === 128;
+    const preByInfo = info.includes("avant le debut");
+    const preByStatus = status.includes("debut dans");
+    const inPlay =
+      phase.includes("mi-temps") ||
+      phase.includes("1ere mi-temps") ||
+      phase.includes("2eme mi-temps") ||
+      info.includes("termine") ||
+      phase.includes("termine");
+    if (inPlay) return false;
+    return preByCode || preByInfo || preByStatus;
+  };
+
   return coupon.filter((pick) => {
     const start = Number(pick?.startTimeUnix || 0);
-    return Number.isFinite(start) && start > 0 && start <= nowSec;
+    if (isPreMatchBySignals(pick)) return false;
+    if (!Number.isFinite(start) || start <= 0) return false;
+    const hasStatusSignals =
+      Number(pick?.statusCode || 0) > 0 ||
+      String(pick?.infoText || "").trim().length > 0 ||
+      String(pick?.statusText || "").trim().length > 0 ||
+      String(pick?.phase || "").trim().length > 0;
+    if (!hasStatusSignals) {
+      const diffSec = nowSec - start;
+      // Tolerance when upstream status signals are missing.
+      if (diffSec >= 0 && diffSec <= 15 * 60) return false;
+    }
+    return start <= nowSec;
   });
 }
 

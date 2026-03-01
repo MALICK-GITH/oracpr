@@ -482,6 +482,10 @@ async function getCouponSelection(size = 3, league = "all", profile = "balanced"
         teamAway: details.match.teamAway,
         league: details.match.league,
         startTimeUnix: details.match.startTimeUnix,
+        statusText: details.match.statusText || "",
+        infoText: details.match.infoText || "",
+        statusCode: details.match.statusCode ?? null,
+        phase: details.match.phase || "",
         pari: option.pari,
         cote: option.cote,
         confiance: Number(option.confiance.toFixed(1)),
@@ -586,7 +590,7 @@ async function validateCouponTicket(ticket, options = {}) {
     const selectedOdd = Number(sel?.cote);
     const market = (details.bettingMarkets || []).find((m) => String(m.nom) === selectedPari);
     const currentOdd = market ? Number(market.cote) : null;
-    const started = Number(match?.startTimeUnix) <= nowSec;
+    const started = !isStrictUpcomingEvent(event, nowSec);
 
     let driftPct = null;
     let driftExceeded = false;
