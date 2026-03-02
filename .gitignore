@@ -3,3 +3,6 @@ node_modules/
 npm
 server.out.log
 server.err.log
+data/*.sqlite
+data/*.sqlite-wal
+data/*.sqlite-shm

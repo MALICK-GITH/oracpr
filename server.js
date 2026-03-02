@@ -4,6 +4,14 @@ const express = require("express");
 const sharp = require("sharp");
 const { API_URL, getPenaltyMatches, getStructure, getMatchPredictionDetails, getCouponSelection, validateCouponTicket } = require("./services/liveFeed");
 const { toFeatures, deduplicate, extractRules, buildDecisionEngine, toTrainReadyCSV } = require("./services/patternEngineV2");
+const {
+  saveCouponGeneration,
+  saveCouponValidation,
+  saveTelegramLog,
+  getCouponHistory,
+  getTelegramHistory,
+  getDbStatus,
+} = require("./services/db");
 
 const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3029;
@@ -1179,6 +1187,16 @@ app.get("/api/coupon", async (req, res) => {
     const league = req.query.league ? String(req.query.league) : "all";
     const risk = req.query.risk ? String(req.query.risk) : "balanced";
     const coupon = await getCouponSelection(size, league, risk);
+    try {
+      saveCouponGeneration({
+        size,
+        league,
+        risk,
+        source: API_URL,
+        summary: coupon?.summary || {},
+        coupon: Array.isArray(coupon?.coupon) ? coupon.coupon : [],
+      });
+    } catch (_dbError) {}
     res.json({ success: true, source: API_URL, ...coupon });
   } catch (error) {
     res.status(500).json({
@@ -1193,11 +1211,76 @@ app.post("/api/coupon/validate", async (req, res) => {
   try {
     const driftThresholdPercent = Number(req.body?.driftThresholdPercent) || 6;
     const report = await validateCouponTicket(req.body || {}, { driftThresholdPercent });
+    try {
+      saveCouponValidation({
+        driftThreshold: driftThresholdPercent,
+        status: "ok",
+        request: req.body || {},
+        report,
+      });
+    } catch (_dbError) {}
     res.json({ success: true, source: API_URL, ...report });
   } catch (error) {
+    try {
+      saveCouponValidation({
+        driftThreshold: Number(req.body?.driftThresholdPercent) || 6,
+        status: "error",
+        request: req.body || {},
+        report: {},
+        error: error.message,
+      });
+    } catch (_dbError) {}
     res.status(500).json({
       success: false,
       message: "Impossible de valider le ticket coupon.",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/db/status", (_req, res) => {
+  try {
+    return res.json({ success: true, db: getDbStatus() });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de lire le statut DB.",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/coupon/history", (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 20;
+    const items = getCouponHistory(limit);
+    return res.json({
+      success: true,
+      total: items.length,
+      items,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de lire l'historique des coupons.",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/telegram/history", (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 20;
+    const items = getTelegramHistory(limit);
+    return res.json({
+      success: true,
+      total: items.length,
+      items,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de lire l'historique Telegram.",
       error: error.message,
     });
   }
@@ -1489,6 +1572,15 @@ async function sendTelegramCouponHandler(req, res) {
         `coupon-fc25-${Date.now()}.${ext}`,
         "Coupon image - FC 25 Virtual Predictions | Signe: SOLITAIRE HACK"
       );
+      try {
+        saveTelegramLog({
+          kind: "coupon_image",
+          status: "sent",
+          message: "Coupon image envoye sur Telegram",
+          payload: req.body || {},
+          response: { telegramMessageId: photoId, chatId },
+        });
+      } catch (_dbError) {}
       return res.json({
         success: true,
         message: "Coupon image envoye sur Telegram.",
@@ -1507,6 +1599,16 @@ async function sendTelegramCouponHandler(req, res) {
     });
     const telegramData = await telegramRes.json();
     if (!telegramRes.ok || !telegramData?.ok) {
+      try {
+        saveTelegramLog({
+          kind: "coupon_text",
+          status: "error",
+          message: "Echec envoi Telegram",
+          payload: req.body || {},
+          response: telegramData || {},
+          error: telegramData?.description || "API Telegram indisponible.",
+        });
+      } catch (_dbError) {}
       return res.status(502).json({
         success: false,
         message: "Echec envoi Telegram.",
@@ -1514,12 +1616,31 @@ async function sendTelegramCouponHandler(req, res) {
       });
     }
 
+    try {
+      saveTelegramLog({
+        kind: "coupon_text",
+        status: "sent",
+        message: "Coupon texte envoye sur Telegram",
+        payload: req.body || {},
+        response: { telegramMessageId: telegramData?.result?.message_id || null, chatId },
+      });
+    } catch (_dbError) {}
     return res.json({
       success: true,
       message: "Coupon envoye sur Telegram.",
       telegramMessageId: telegramData?.result?.message_id || null,
     });
   } catch (error) {
+    try {
+      saveTelegramLog({
+        kind: "coupon_text",
+        status: "error",
+        message: "Impossible d'envoyer le coupon sur Telegram",
+        payload: req.body || {},
+        response: {},
+        error: error.message,
+      });
+    } catch (_dbError) {}
     res.status(500).json({
       success: false,
       message: "Impossible d'envoyer le coupon sur Telegram.",
@@ -1599,6 +1720,20 @@ async function sendTelegramCouponPackHandler(req, res) {
       "Coupon PDF rapide - FC 25 Virtual Predictions"
     );
 
+    try {
+      saveTelegramLog({
+        kind: "coupon_pack",
+        status: "sent",
+        message: "Pack Telegram envoye (texte + image + PDF)",
+        payload: req.body || {},
+        response: {
+          chatId,
+          textMessageId: textData?.result?.message_id || null,
+          imageMessageId,
+          pdfMessageId,
+        },
+      });
+    } catch (_dbError) {}
     return res.json({
       success: true,
       message: "Pack Telegram envoye: texte + image + PDF.",
@@ -1609,6 +1744,16 @@ async function sendTelegramCouponPackHandler(req, res) {
       },
     });
   } catch (error) {
+    try {
+      saveTelegramLog({
+        kind: "coupon_pack",
+        status: "error",
+        message: "Impossible d'envoyer le pack Telegram",
+        payload: req.body || {},
+        response: {},
+        error: error.message,
+      });
+    } catch (_dbError) {}
     return res.status(500).json({
       success: false,
       message: "Impossible d'envoyer le pack Telegram.",
@@ -1682,18 +1827,47 @@ async function sendTelegramLadderHandler(req, res) {
     });
     const data = await telegramRes.json();
     if (!telegramRes.ok || !data?.ok) {
+      try {
+        saveTelegramLog({
+          kind: "ladder_text",
+          status: "error",
+          message: "Echec envoi Ladder Telegram",
+          payload: req.body || {},
+          response: data || {},
+          error: data?.description || "API Telegram indisponible.",
+        });
+      } catch (_dbError) {}
       return res.status(502).json({
         success: false,
         message: "Echec envoi Ladder Telegram.",
         error: data?.description || "API Telegram indisponible.",
       });
     }
+    try {
+      saveTelegramLog({
+        kind: "ladder_text",
+        status: "sent",
+        message: "Ladder envoye sur Telegram",
+        payload: req.body || {},
+        response: { telegramMessageId: data?.result?.message_id || null, chatId },
+      });
+    } catch (_dbError) {}
     return res.json({
       success: true,
       message: "Ladder envoye sur Telegram.",
       telegramMessageId: data?.result?.message_id || null,
     });
   } catch (error) {
+    try {
+      saveTelegramLog({
+        kind: "ladder_text",
+        status: "error",
+        message: "Impossible d'envoyer le Ladder sur Telegram",
+        payload: req.body || {},
+        response: {},
+        error: error.message,
+      });
+    } catch (_dbError) {}
     return res.status(500).json({
       success: false,
       message: "Impossible d'envoyer le Ladder sur Telegram.",
