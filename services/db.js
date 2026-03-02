@@ -51,6 +51,17 @@ db.exec(`
   );
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    audit_id TEXT NOT NULL,
+    action TEXT,
+    payload_json TEXT,
+    result_json TEXT
+  );
+`);
+
 const insertCouponGenerationStmt = db.prepare(`
   INSERT INTO coupon_generations (size, league, risk, source, summary_json, coupon_json)
   VALUES (?, ?, ?, ?, ?, ?)
@@ -76,6 +87,18 @@ const selectCouponHistoryStmt = db.prepare(`
 const selectTelegramHistoryStmt = db.prepare(`
   SELECT id, created_at, kind, status, message, payload_json, response_json, error_text
   FROM telegram_logs
+  ORDER BY id DESC
+  LIMIT ?
+`);
+
+const insertAuditReportStmt = db.prepare(`
+  INSERT INTO audit_reports (audit_id, action, payload_json, result_json)
+  VALUES (?, ?, ?, ?)
+`);
+
+const selectAuditHistoryStmt = db.prepare(`
+  SELECT id, created_at, audit_id, action, payload_json, result_json
+  FROM audit_reports
   ORDER BY id DESC
   LIMIT ?
 `);
@@ -156,6 +179,7 @@ function getDbStatus() {
   const couponCount = db.prepare("SELECT COUNT(*) AS c FROM coupon_generations").get().c;
   const validationCount = db.prepare("SELECT COUNT(*) AS c FROM coupon_validations").get().c;
   const telegramCount = db.prepare("SELECT COUNT(*) AS c FROM telegram_logs").get().c;
+  const auditCount = db.prepare("SELECT COUNT(*) AS c FROM audit_reports").get().c;
   return {
     ok: true,
     file: dbFile,
@@ -163,15 +187,44 @@ function getDbStatus() {
       coupon_generations: Number(couponCount) || 0,
       coupon_validations: Number(validationCount) || 0,
       telegram_logs: Number(telegramCount) || 0,
+      audit_reports: Number(auditCount) || 0,
     },
   };
+}
+
+function saveAuditReport(entry = {}) {
+  const auditId = entry.auditId ? String(entry.auditId) : `AUD-${Date.now()}`;
+  const result = insertAuditReportStmt.run(
+    auditId,
+    entry.action ? String(entry.action) : "unknown",
+    JSON.stringify(entry.payload || {}),
+    JSON.stringify(entry.result || {})
+  );
+  return {
+    id: result.lastInsertRowid,
+    auditId,
+  };
+}
+
+function getAuditHistory(limit = 20) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 20));
+  return selectAuditHistoryStmt.all(safeLimit).map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    auditId: row.audit_id,
+    action: row.action,
+    payload: parseJsonSafe(row.payload_json, {}),
+    result: parseJsonSafe(row.result_json, {}),
+  }));
 }
 
 module.exports = {
   saveCouponGeneration,
   saveCouponValidation,
   saveTelegramLog,
+  saveAuditReport,
   getCouponHistory,
   getTelegramHistory,
+  getAuditHistory,
   getDbStatus,
 };

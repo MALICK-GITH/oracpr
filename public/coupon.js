@@ -21,10 +21,18 @@ const FREEZE_MINUTES_KEY = "fc25_freeze_minutes_v1";
 const BANKROLL_PROFILE_KEY = "fc25_bankroll_profile_v1";
 const LIVE_SIMULATION_KEY = "fc25_live_simulation_v1";
 const WATCHLIST_KEY = "fc25_watchlist_v1";
+const ALERT_CENTER_KEY = "fc25_alert_center_v1";
+const ODDS_JOURNAL_KEY = "fc25_odds_journal_v1";
+const AUTO_COUPON_INTERVAL_KEY = "fc25_auto_coupon_interval_v1";
+const AUTO_COUPON_QUALITY_KEY = "fc25_auto_coupon_quality_v1";
+const AUTO_COUPON_TG_KEY = "fc25_auto_coupon_tg_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 let pageRefreshCouponIntervalId = null;
 let liveSimulationIntervalId = null;
 let watchlistIntervalId = null;
+let autoCouponSchedulerId = null;
+let serverHistoryIntervalId = null;
+let autoCouponRunning = false;
 const stabilityCache = new Map();
 
 function clamp(n, min, max) {
@@ -98,6 +106,227 @@ function isAutoCouponEnabled() {
 
 function setAutoCouponEnabled(value) {
   localStorage.setItem(AUTO_COUPON_STORAGE_KEY, value ? "1" : "0");
+}
+
+function getAutoCouponIntervalMinutes() {
+  const n = Number(localStorage.getItem(AUTO_COUPON_INTERVAL_KEY));
+  if (!Number.isFinite(n)) return 15;
+  return Math.max(1, Math.min(120, Math.floor(n)));
+}
+
+function setAutoCouponIntervalMinutes(value) {
+  const safe = Math.max(1, Math.min(120, Math.floor(Number(value) || 15)));
+  localStorage.setItem(AUTO_COUPON_INTERVAL_KEY, String(safe));
+  return safe;
+}
+
+function getAutoCouponQualityThreshold() {
+  const n = Number(localStorage.getItem(AUTO_COUPON_QUALITY_KEY));
+  if (!Number.isFinite(n)) return 72;
+  return Math.max(1, Math.min(100, Math.floor(n)));
+}
+
+function setAutoCouponQualityThreshold(value) {
+  const safe = Math.max(1, Math.min(100, Math.floor(Number(value) || 72)));
+  localStorage.setItem(AUTO_COUPON_QUALITY_KEY, String(safe));
+  return safe;
+}
+
+function isAutoCouponTelegramEnabled() {
+  return localStorage.getItem(AUTO_COUPON_TG_KEY) === "1";
+}
+
+function setAutoCouponTelegramEnabled(value) {
+  localStorage.setItem(AUTO_COUPON_TG_KEY, value ? "1" : "0");
+}
+
+function readAlertCenter() {
+  try {
+    const raw = localStorage.getItem(ALERT_CENTER_KEY);
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAlertCenter(items) {
+  localStorage.setItem(ALERT_CENTER_KEY, JSON.stringify((Array.isArray(items) ? items : []).slice(0, 120)));
+}
+
+function readOddsJournal() {
+  try {
+    const raw = localStorage.getItem(ODDS_JOURNAL_KEY);
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeOddsJournal(items) {
+  localStorage.setItem(ODDS_JOURNAL_KEY, JSON.stringify((Array.isArray(items) ? items : []).slice(0, 2000)));
+}
+
+function pushAlert({ severity = "low", title = "Info", detail = "", type = "info" }) {
+  const now = new Date().toISOString();
+  const item = { at: now, severity, title, detail, type };
+  const items = readAlertCenter();
+  items.unshift(item);
+  writeAlertCenter(items);
+  renderAlertsPanel();
+
+  if (severity === "high" && "Notification" in window) {
+    if (Notification.permission === "granted") {
+      try {
+        new Notification(title, { body: detail || "Alerte coupon" });
+      } catch {}
+    }
+  }
+}
+
+function renderAlertsPanel() {
+  const panel = document.getElementById("alertsPanel");
+  if (!panel) return;
+  const items = readAlertCenter();
+  if (!items.length) {
+    panel.innerHTML = "<h3>Centre d'Alertes</h3><p>Aucune alerte pour le moment.</p>";
+    return;
+  }
+  const rows = items
+    .slice(0, 12)
+    .map(
+      (x, i) => `<li class="sev-${x.severity || "low"}"><strong>${i + 1}. ${x.title}</strong><br /><span>${x.detail || "-"}</span><br /><span class="small-muted">${formatDateTime(
+        x.at
+      )}</span></li>`
+    )
+    .join("");
+  panel.innerHTML = `
+    <h3>Centre d'Alertes</h3>
+    <button id="clearAlertsBtn" type="button">Vider alertes</button>
+    <ul class="validation-list alert-list">${rows}</ul>
+  `;
+  const clearBtn = document.getElementById("clearAlertsBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      writeAlertCenter([]);
+      renderAlertsPanel();
+    });
+  }
+}
+
+function appendOddsJournalSnapshot(stage = "unknown", picks = []) {
+  if (!Array.isArray(picks) || !picks.length) return;
+  const now = new Date().toISOString();
+  const entries = picks.map((p) => ({
+    at: now,
+    stage,
+    matchId: p.matchId,
+    teams: `${p.teamHome || "?"} vs ${p.teamAway || "?"}`,
+    league: p.league || "",
+    pari: p.pari || "-",
+    odd: Number(p.cote || 0),
+  }));
+  const all = readOddsJournal();
+  writeOddsJournal([...entries, ...all]);
+}
+
+function renderOddsJournalPanel() {
+  const panel = document.getElementById("oddsJournalPanel");
+  if (!panel) return;
+  const items = readOddsJournal();
+  if (!items.length) {
+    panel.innerHTML = "<h3>Journal des Cotes</h3><p>Aucune variation tracee.</p>";
+    return;
+  }
+
+  const byKey = new Map();
+  for (const x of items) {
+    const key = `${x.matchId}|${x.pari}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key).push(x);
+  }
+
+  const rows = [...byKey.values()]
+    .slice(0, 12)
+    .map((track) => {
+      const sorted = track.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+      const first = Number(sorted[0]?.odd || 0);
+      const last = Number(sorted[sorted.length - 1]?.odd || 0);
+      const diff = Number((last - first).toFixed(3));
+      const pct = first > 0 ? Number((((last - first) / first) * 100).toFixed(2)) : 0;
+      const t = sorted[sorted.length - 1];
+      return `<li>
+        <strong>${t.teams}</strong><br />
+        ${t.pari} | debut ${formatOdd(first)} -> actuel ${formatOdd(last)} (${diff >= 0 ? "+" : ""}${diff} / ${pct >= 0 ? "+" : ""}${pct}%)<br />
+        <span class="small-muted">Etapes: ${sorted.map((s) => `${s.stage}:${formatOdd(s.odd)}`).join(" | ")}</span>
+      </li>`;
+    })
+    .join("");
+
+  panel.innerHTML = `
+    <h3>Journal des Cotes</h3>
+    <button id="clearOddsJournalBtn" type="button">Vider journal cotes</button>
+    <ul class="validation-list">${rows}</ul>
+  `;
+  const clearBtn = document.getElementById("clearOddsJournalBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      writeOddsJournal([]);
+      renderOddsJournalPanel();
+    });
+  }
+}
+
+async function renderServerHistoryPanel() {
+  const panel = document.getElementById("serverHistoryPanel");
+  if (!panel) return;
+  panel.innerHTML = "<h3>Historique serveur</h3><p>Chargement...</p>";
+  try {
+    const [statusRes, couponRes, tgRes, auditRes] = await Promise.all([
+      fetch("/api/db/status", { cache: "no-store" }),
+      fetch("/api/coupon/history?limit=8", { cache: "no-store" }),
+      fetch("/api/telegram/history?limit=8", { cache: "no-store" }),
+      fetch("/api/audit/history?limit=8", { cache: "no-store" }),
+    ]);
+    const status = await readJsonSafe(statusRes);
+    const coupons = await readJsonSafe(couponRes);
+    const telegram = await readJsonSafe(tgRes);
+    const audits = await readJsonSafe(auditRes);
+    const dbInfo = status?.db?.tables || {};
+
+    const listCoupons = (coupons?.items || [])
+      .slice(0, 5)
+      .map((x, i) => `<li><strong>${i + 1}. ${formatDateTime(x.createdAt)}</strong> | ${x.summary?.totalSelections || 0} sel | cote ${formatOdd(x.summary?.combinedOdd)} | ${x.risk || "-"}</li>`)
+      .join("");
+    const listTelegram = (telegram?.items || [])
+      .slice(0, 5)
+      .map((x, i) => `<li><strong>${i + 1}. ${formatDateTime(x.createdAt)}</strong> | ${x.kind} | ${x.status}</li>`)
+      .join("");
+    const listAudits = (audits?.items || [])
+      .slice(0, 5)
+      .map((x, i) => `<li><strong>${i + 1}. ${x.auditId}</strong> | ${formatDateTime(x.createdAt)} | ${x.action}</li>`)
+      .join("");
+
+    panel.innerHTML = `
+      <h3>Historique serveur</h3>
+      <div class="meta">
+        <span>Coupons DB: ${Number(dbInfo.coupon_generations || 0)}</span>
+        <span>Validations DB: ${Number(dbInfo.coupon_validations || 0)}</span>
+        <span>Telegram DB: ${Number(dbInfo.telegram_logs || 0)}</span>
+        <span>Audit DB: ${Number(dbInfo.audit_reports || 0)}</span>
+      </div>
+      <p><strong>Derniers coupons</strong></p>
+      <ul class="validation-list">${listCoupons || "<li>Aucun coupon serveur</li>"}</ul>
+      <p><strong>Derniers envois Telegram</strong></p>
+      <ul class="validation-list">${listTelegram || "<li>Aucun envoi Telegram</li>"}</ul>
+      <p><strong>Derniers audits</strong></p>
+      <ul class="validation-list">${listAudits || "<li>Aucun audit</li>"}</ul>
+    `;
+  } catch (error) {
+    panel.innerHTML = `<h3>Historique serveur</h3><p>Erreur: ${error.message}</p>`;
+    pushAlert({ severity: "medium", title: "Historique serveur indisponible", detail: error.message, type: "server_history" });
+  }
 }
 
 function isStrictUpcomingMatch(match, nowSec) {
@@ -192,6 +421,33 @@ function computeCouponInsights(coupon = [], riskProfile = "balanced") {
     confidenceAvg: Number(confidenceAvg.toFixed(1)),
     leagueDiversity: Number(leagueDiversity.toFixed(1)),
   };
+}
+
+function renderHealthPanel(coupon = [], riskProfile = "balanced", summary = {}) {
+  const panel = document.getElementById("healthPanel");
+  if (!panel) return;
+  if (!Array.isArray(coupon) || !coupon.length) {
+    panel.innerHTML = "<h3>Dashboard Sante du Coupon</h3><p>Genere un coupon pour calculer la sante globale.</p>";
+    return;
+  }
+  const insights = computeCouponInsights(coupon, riskProfile);
+  const drift = getDriftThreshold();
+  const score = Number(insights.qualityScore || 0);
+  const statusClass = score >= 75 ? "health-good" : score >= 60 ? "health-mid" : "health-bad";
+  const statusLabel = score >= 75 ? "VERT" : score >= 60 ? "ORANGE" : "ROUGE";
+  const startText =
+    insights.minStartMinutes == null ? "-" : `${Math.max(0, Math.floor(insights.minStartMinutes))} min`;
+  panel.innerHTML = `
+    <h3>Dashboard Sante du Coupon</h3>
+    <p><span class="health-score ${statusClass}">Sante ${score}/100 - ${statusLabel}</span></p>
+    <div class="meta">
+      <span>Stabilite: ${score >= 75 ? "Haute" : score >= 60 ? "Moyenne" : "Faible"}</span>
+      <span>Correlation: ${insights.correlationRisk}%</span>
+      <span>Confiance moyenne: ${Number(summary.averageConfidence || insights.confidenceAvg || 0)}%</span>
+      <span>Demarrage min: ${startText}</span>
+      <span>Seuil drift actif: ${drift}%</span>
+    </div>
+  `;
 }
 
 function getStakeValue() {
@@ -381,6 +637,7 @@ function updateSendButtonState() {
   const pdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
   const pdfBtn = document.getElementById("downloadPdfBtn");
   const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
+  const exportBtn = document.getElementById("exportProBtn");
   const pdfStickyBtn = document.getElementById("downloadPdfBtnSticky");
   const simulateBtn = document.getElementById("simulateBankrollBtn");
   const enabled = Boolean(lastCouponData && Array.isArray(lastCouponData.coupon) && lastCouponData.coupon.length > 0);
@@ -400,6 +657,7 @@ function updateSendButtonState() {
   if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
+  if (exportBtn) exportBtn.disabled = !enabled;
   if (pdfStickyBtn) pdfStickyBtn.disabled = !enabled;
   if (simulateBtn) simulateBtn.disabled = !enabled;
 }
@@ -805,6 +1063,12 @@ async function updateWatchlistLive() {
             odd
           )}).</p>`;
         }
+        pushAlert({
+          severity: "medium",
+          title: "Watchlist: cible cote atteinte",
+          detail: `${item.home} vs ${item.away} -> ${formatOdd(odd)}`,
+          type: "watchlist_target",
+        });
       }
       changed = true;
     } catch {
@@ -854,6 +1118,16 @@ function restartLiveMonitors() {
   }
 }
 
+function restartServerHistoryMonitor() {
+  if (serverHistoryIntervalId) {
+    clearInterval(serverHistoryIntervalId);
+    serverHistoryIntervalId = null;
+  }
+  serverHistoryIntervalId = setInterval(() => {
+    renderServerHistoryPanel();
+  }, 60000);
+}
+
 function applyBankrollProfilePreset(profile) {
   const safe = setBankrollProfile(profile);
   const sizeInput = document.getElementById("sizeInput");
@@ -878,6 +1152,110 @@ function applyBankrollProfilePreset(profile) {
   }
   setFreezeMinutes(freezeInput?.value || 3);
   updateSendButtonState();
+  suggestStakeFromProfile();
+}
+
+function suggestStakeFromProfile() {
+  const bankroll = Number(document.getElementById("bankrollInput")?.value || 0);
+  const stakeInput = document.getElementById("stakeInput");
+  if (!stakeInput || bankroll <= 0) return;
+  const profile = getBankrollProfile();
+  const ratio = profile === "conservateur" ? 0.02 : profile === "attaque" ? 0.08 : 0.04;
+  const suggested = Math.max(100, Math.round((bankroll * ratio) / 100) * 100);
+  stakeInput.value = String(suggested);
+}
+
+async function createAuditEntry(action, payload, result) {
+  try {
+    const res = await fetch("/api/coupon/audit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, payload, result }),
+    });
+    const data = await readJsonSafe(res);
+    if (!res.ok || !data?.success) throw new Error(data?.error || data?.message || "Audit KO");
+    return data.auditId || null;
+  } catch {
+    return null;
+  }
+}
+
+async function exportProReport() {
+  const panel = document.getElementById("validation");
+  if (!lastCouponData?.coupon?.length) {
+    if (panel) panel.innerHTML = "<p>Genere d'abord un coupon avant export pro.</p>";
+    return;
+  }
+  try {
+    if (panel) panel.innerHTML = "<p>Export rapport pro en cours...</p>";
+    await enforceTicketShield("export rapport pro");
+    await downloadCouponImage("default");
+    await downloadCouponPdf("detailed");
+    const autoTg = isAutoCouponTelegramEnabled();
+    if (autoTg) {
+      await sendCouponToTelegram(false);
+    }
+    const auditId = await createAuditEntry("coupon_export_pro", { coupon: lastCouponData }, { autoTelegram: autoTg, ok: true });
+    if (panel) {
+      panel.innerHTML = `
+        <h3>Export Rapport Pro</h3>
+        <p class="ticket-status ticket-ok">TERMINE</p>
+        <p>Image + PDF detaille${autoTg ? " + Telegram" : ""} executes.</p>
+        <p>ID Audit: <strong>${auditId || "N/A"}</strong></p>
+      `;
+    }
+    pushAlert({
+      severity: "low",
+      title: "Rapport pro exporte",
+      detail: `Export complet termine. Audit: ${auditId || "N/A"}`,
+      type: "export_pro",
+    });
+    renderServerHistoryPanel();
+  } catch (error) {
+    if (panel) panel.innerHTML = `<p>Erreur export pro: ${error.message}</p>`;
+    pushAlert({ severity: "high", title: "Echec export pro", detail: error.message, type: "export_pro_error" });
+  }
+}
+
+function startAutoCouponScheduler() {
+  if (autoCouponSchedulerId) {
+    clearInterval(autoCouponSchedulerId);
+    autoCouponSchedulerId = null;
+  }
+  if (!isAutoCouponEnabled()) return;
+  const minutes = getAutoCouponIntervalMinutes();
+  const ms = minutes * 60 * 1000;
+  autoCouponSchedulerId = setInterval(async () => {
+    if (autoCouponRunning) return;
+    autoCouponRunning = true;
+    try {
+      await generateCoupon();
+      const insights = computeCouponInsights(lastCouponData?.coupon || [], lastCouponData?.riskProfile || "balanced");
+      const threshold = getAutoCouponQualityThreshold();
+      if (Number(insights.qualityScore || 0) >= threshold) {
+        pushAlert({
+          severity: "low",
+          title: "Auto-coupon valide",
+          detail: `Qualite ${insights.qualityScore}/100 >= ${threshold}`,
+          type: "auto_coupon",
+        });
+        if (isAutoCouponTelegramEnabled()) {
+          await sendCouponToTelegram(false);
+        }
+      } else {
+        pushAlert({
+          severity: "medium",
+          title: "Auto-coupon sous seuil",
+          detail: `Qualite ${insights.qualityScore}/100 < ${threshold}`,
+          type: "auto_coupon_quality",
+        });
+      }
+    } catch (error) {
+      pushAlert({ severity: "high", title: "Auto-coupon echec", detail: error.message, type: "auto_coupon_error" });
+    } finally {
+      autoCouponRunning = false;
+    }
+  }, ms);
 }
 
 function renderPostTicketReport(report) {
@@ -989,8 +1367,18 @@ async function sendCouponPackToTelegram() {
       at: new Date().toISOString(),
       note: `Pack Telegram envoye (texte+image+PDF) | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
+    appendOddsJournalSnapshot("telegram_pack", lastCouponData.coupon);
+    renderOddsJournalPanel();
+    pushAlert({
+      severity: "low",
+      title: "Pack Telegram envoye",
+      detail: `${lastCouponData.summary?.totalSelections ?? 0} selections envoyees`,
+      type: "telegram_pack_sent",
+    });
+    renderServerHistoryPanel();
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur pack Telegram: ${error.message}</p>`;
+    pushAlert({ severity: "high", title: "Erreur pack Telegram", detail: error.message, type: "telegram_pack_error" });
   }
 }
 
@@ -1205,6 +1593,17 @@ function renderCoupon(data) {
     }
     <p class="warning">${data.warning || ""}</p>
   `);
+  renderHealthPanel(picks, data.riskProfile || "balanced", data.summary || {});
+  appendOddsJournalSnapshot("generation", picks);
+  renderOddsJournalPanel();
+  if (Number(insights.qualityScore || 0) < 60) {
+    pushAlert({
+      severity: "medium",
+      title: "Qualite coupon faible",
+      detail: `Qualite ${insights.qualityScore}/100, pense a remplacer un pick.`,
+      type: "coupon_quality",
+    });
+  }
   const validationPanel = document.getElementById("validation");
   if (validationPanel) {
     validationPanel.innerHTML = "<p>Ticket genere. Clique sur <strong>Valider Ticket Pro</strong>.</p>";
@@ -1226,6 +1625,7 @@ function renderCoupon(data) {
     span.textContent = `Stabilite moyenne: ${avg}/100`;
     meta.appendChild(span);
   });
+  suggestStakeFromProfile();
 }
 
 async function buildBackupPlan(coupon = [], profile = "balanced") {
@@ -1461,6 +1861,32 @@ function renderValidation(report) {
     </div>
     <ul class="validation-list">${rows || "<li>Aucune ligne de ticket</li>"}</ul>
   `;
+  const toFix = Number(report?.summary?.toFix || 0);
+  if (toFix > 0) {
+    pushAlert({
+      severity: toFix >= 2 ? "high" : "medium",
+      title: "Validation ticket: corrections requises",
+      detail: `${toFix} selection(s) a corriger avant envoi.`,
+      type: "validation_fix",
+    });
+  }
+  const maxDrift = Math.max(
+    0,
+    ...(Array.isArray(report?.validatedSelections)
+      ? report.validatedSelections.map((x) => Number(x?.driftPercent || 0))
+      : [0])
+  );
+  if (maxDrift >= getDriftThreshold() + 3) {
+    pushAlert({
+      severity: "high",
+      title: "Drift fort detecte",
+      detail: `Drift max ${maxDrift.toFixed(2)}%`,
+      type: "drift",
+    });
+  }
+  appendOddsJournalSnapshot("validation", Array.isArray(lastCouponData?.coupon) ? lastCouponData.coupon : []);
+  renderOddsJournalPanel();
+  renderHealthPanel(lastCouponData?.coupon || [], lastCouponData?.riskProfile || "balanced", lastCouponData?.summary || {});
   addHistoryEntry({
     type: "validation",
     at: new Date().toISOString(),
@@ -1521,8 +1947,18 @@ async function sendCouponToTelegram(sendImage = false, mini = false) {
       at: new Date().toISOString(),
       note: `Coupon ${mini ? "mini" : sendImage ? "image" : "texte"} envoye Telegram | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
+    appendOddsJournalSnapshot(sendImage ? "telegram_image" : mini ? "telegram_mini" : "telegram_text", lastCouponData.coupon);
+    renderOddsJournalPanel();
+    pushAlert({
+      severity: "low",
+      title: "Envoi Telegram reussi",
+      detail: `Mode ${mini ? "mini" : sendImage ? "image" : "texte"} | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      type: "telegram_sent",
+    });
+    renderServerHistoryPanel();
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur Telegram: ${error.message}</p>`;
+    pushAlert({ severity: "high", title: "Erreur Telegram", detail: error.message, type: "telegram_error" });
   }
 }
 
@@ -1714,8 +2150,16 @@ async function generateCoupon() {
       };
       renderCoupon(data);
       lastCouponBackups = await buildBackupPlan(Array.isArray(data?.coupon) ? data.coupon : [], risk);
+      renderServerHistoryPanel();
+      pushAlert({
+        severity: "low",
+        title: "Coupon genere",
+        detail: `${data?.summary?.totalSelections || 0} selections | qualite ${computeCouponInsights(data?.coupon || [], risk).qualityScore}/100`,
+        type: "coupon_generated",
+      });
     } catch (error) {
     setResultHtml(`<p>Erreur: ${error.message}</p>`);
+    pushAlert({ severity: "high", title: "Echec generation coupon", detail: error.message, type: "coupon_error" });
   }
 }
 
@@ -1769,6 +2213,16 @@ async function maybeStartAlertAndReplace() {
   const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
   const minStart = Number(insights?.minStartMinutes);
   if (!Number.isFinite(minStart) || minStart > threshold) return;
+  pushAlert({
+    severity: minStart <= 2 ? "high" : "medium",
+    title: "Match proche du demarrage",
+    detail: `Un match commence dans ${Math.max(0, Math.floor(minStart))} min.`,
+    type: "start_alert",
+  });
+  if (minStart <= 2) {
+    await replaceWeakSelection();
+    return;
+  }
   const wantsReplace = window.confirm(
     `Alerte intelligente: un match demarre dans ${Math.max(0, Math.floor(minStart))} min. Veux-tu remplacer le pick le plus faible maintenant ?`
   );
@@ -1971,6 +2425,7 @@ async function validateTicket() {
     addPerformanceFromValidation(data);
     renderPerformanceJournal();
     renderPostTicketReport(data);
+    renderServerHistoryPanel();
   } catch (error) {
     panel.innerHTML = `<p>Erreur validation: ${error.message}</p>`;
   }
@@ -2059,6 +2514,7 @@ const downloadStoryBtn = document.getElementById("downloadStoryBtn");
 const downloadPdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
 const downloadPdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
+const exportProBtn = document.getElementById("exportProBtn");
 const generateBtnSticky = document.getElementById("generateBtnSticky");
 const validateBtnSticky = document.getElementById("validateBtnSticky");
 const sendTelegramBtnSticky = document.getElementById("sendTelegramBtnSticky");
@@ -2135,6 +2591,9 @@ if (downloadPdfQuickBtn) {
 if (downloadPdfDetailedBtn) {
   downloadPdfDetailedBtn.addEventListener("click", () => downloadCouponPdf("detailed"));
 }
+if (exportProBtn) {
+  exportProBtn.addEventListener("click", exportProReport);
+}
 if (downloadPdfBtnSticky) {
   downloadPdfBtnSticky.addEventListener("click", downloadCouponPdfPack);
 }
@@ -2159,6 +2618,34 @@ async function initCouponPage() {
     autoSwitch.checked = isAutoCouponEnabled();
     autoSwitch.addEventListener("change", () => {
       setAutoCouponEnabled(autoSwitch.checked);
+      startAutoCouponScheduler();
+    });
+  }
+
+  const autoIntervalInput = document.getElementById("autoCouponIntervalInput");
+  if (autoIntervalInput) {
+    autoIntervalInput.value = String(getAutoCouponIntervalMinutes());
+    autoIntervalInput.addEventListener("change", () => {
+      const v = setAutoCouponIntervalMinutes(autoIntervalInput.value);
+      autoIntervalInput.value = String(v);
+      startAutoCouponScheduler();
+    });
+  }
+
+  const autoQualityInput = document.getElementById("autoCouponQualityInput");
+  if (autoQualityInput) {
+    autoQualityInput.value = String(getAutoCouponQualityThreshold());
+    autoQualityInput.addEventListener("change", () => {
+      const v = setAutoCouponQualityThreshold(autoQualityInput.value);
+      autoQualityInput.value = String(v);
+    });
+  }
+
+  const autoTelegramSwitch = document.getElementById("autoCouponTelegramSwitch");
+  if (autoTelegramSwitch) {
+    autoTelegramSwitch.checked = isAutoCouponTelegramEnabled();
+    autoTelegramSwitch.addEventListener("change", () => {
+      setAutoCouponTelegramEnabled(autoTelegramSwitch.checked);
     });
   }
 
@@ -2212,10 +2699,22 @@ async function initCouponPage() {
 
   await loadLeagues();
   renderHistory();
+  renderAlertsPanel();
+  renderOddsJournalPanel();
+  renderServerHistoryPanel();
   renderPerformanceJournal();
   renderWatchlistPanel();
   updateSendButtonState();
   restartLiveMonitors();
+  restartServerHistoryMonitor();
+  startAutoCouponScheduler();
+  suggestStakeFromProfile();
+
+  if ("Notification" in window && Notification.permission === "default") {
+    try {
+      Notification.requestPermission();
+    } catch {}
+  }
 
   if (isAutoCouponEnabled()) {
     setTimeout(() => {
@@ -2262,8 +2761,12 @@ function registerCouponSiteControl() {
       "download_pdf_quick",
       "download_pdf_summary",
       "download_pdf_detailed",
+      "export_pro_report",
       "set_coupon_form",
       "set_auto_coupon",
+      "set_auto_coupon_interval",
+      "set_auto_coupon_quality",
+      "set_auto_coupon_telegram",
       "set_refresh_minutes",
       "set_anti_correlation",
       "set_freeze_minutes",
@@ -2293,10 +2796,32 @@ function registerCouponSiteControl() {
       if (action === "download_pdf_quick") return downloadCouponPdf("quick");
       if (action === "download_pdf_summary") return downloadCouponPdf("summary");
       if (action === "download_pdf_detailed") return downloadCouponPdf("detailed");
+      if (action === "export_pro_report") return exportProReport();
       if (action === "set_auto_coupon") {
         const enabled = Boolean(payload?.enabled);
         setAutoCouponEnabled(enabled);
         const sw = document.getElementById("autoCouponSwitch");
+        if (sw) sw.checked = enabled;
+        startAutoCouponScheduler();
+        return true;
+      }
+      if (action === "set_auto_coupon_interval") {
+        const m = setAutoCouponIntervalMinutes(payload?.minutes);
+        const input = document.getElementById("autoCouponIntervalInput");
+        if (input) input.value = String(m);
+        startAutoCouponScheduler();
+        return true;
+      }
+      if (action === "set_auto_coupon_quality") {
+        const q = setAutoCouponQualityThreshold(payload?.quality);
+        const input = document.getElementById("autoCouponQualityInput");
+        if (input) input.value = String(q);
+        return true;
+      }
+      if (action === "set_auto_coupon_telegram") {
+        const enabled = payload?.enabled !== false;
+        setAutoCouponTelegramEnabled(enabled);
+        const sw = document.getElementById("autoCouponTelegramSwitch");
         if (sw) sw.checked = enabled;
         return true;
       }

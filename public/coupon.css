@@ -138,6 +138,7 @@ h1 {
 #downloadPdfQuickBtn,
 #downloadPdfBtn,
 #downloadPdfDetailedBtn,
+#exportProBtn,
 #analyzeJournalBtn,
 #replayJournalBtn,
 #watchlistFromCouponBtn {
@@ -236,6 +237,11 @@ h1 {
   background: linear-gradient(90deg, #b7ffef, #ddfff7);
 }
 
+#exportProBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #ffb8d8, #ffd6ea);
+}
+
 #analyzeJournalBtn {
   color: #051120;
   background: linear-gradient(90deg, #f8df9a, #fff0c8);
@@ -287,6 +293,7 @@ h1 {
 #downloadPdfQuickBtn::after,
 #downloadPdfBtn::after,
 #downloadPdfDetailedBtn::after,
+#exportProBtn::after,
 #analyzeJournalBtn::after,
 #replayJournalBtn::after,
 #watchlistFromCouponBtn::after {
@@ -322,6 +329,59 @@ h1 {
 #watchlistFromCouponBtn:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+#exportProBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.health-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-weight: 700;
+  border: 1px solid var(--line);
+}
+
+.health-good {
+  background: rgba(125, 255, 173, 0.18);
+  border-color: rgba(125, 255, 173, 0.44);
+  color: #d8ffe9;
+}
+
+.health-mid {
+  background: rgba(255, 210, 122, 0.2);
+  border-color: rgba(255, 210, 122, 0.45);
+  color: #ffe8c1;
+}
+
+.health-bad {
+  background: rgba(255, 107, 132, 0.2);
+  border-color: rgba(255, 107, 132, 0.45);
+  color: #ffd6df;
+}
+
+.alert-list .sev-high {
+  border-color: rgba(255, 107, 132, 0.52);
+  background: rgba(255, 107, 132, 0.12);
+}
+
+.alert-list .sev-medium {
+  border-color: rgba(255, 210, 122, 0.5);
+  background: rgba(255, 210, 122, 0.12);
+}
+
+.alert-list .sev-low {
+  border-color: rgba(124, 214, 255, 0.45);
+  background: rgba(124, 214, 255, 0.08);
+}
+
+.small-muted {
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 #downloadPdfDetailedBtn:disabled {

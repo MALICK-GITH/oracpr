@@ -8,8 +8,10 @@ const {
   saveCouponGeneration,
   saveCouponValidation,
   saveTelegramLog,
+  saveAuditReport,
   getCouponHistory,
   getTelegramHistory,
+  getAuditHistory,
   getDbStatus,
 } = require("./services/db");
 
@@ -1281,6 +1283,54 @@ app.get("/api/telegram/history", (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Impossible de lire l'historique Telegram.",
+      error: error.message,
+    });
+  }
+});
+
+app.get("/api/audit/history", (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 20;
+    const items = getAuditHistory(limit);
+    return res.json({
+      success: true,
+      total: items.length,
+      items,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de lire l'historique audit.",
+      error: error.message,
+    });
+  }
+});
+
+app.post("/api/coupon/audit", (req, res) => {
+  try {
+    const now = new Date();
+    const auditId =
+      String(req.body?.auditId || "").trim() ||
+      `AUD-${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}-${String(
+        now.getUTCHours()
+      ).padStart(2, "0")}${String(now.getUTCMinutes()).padStart(2, "0")}${String(now.getUTCSeconds()).padStart(2, "0")}-${Math.floor(
+        Math.random() * 9000 + 1000
+      )}`;
+    const saved = saveAuditReport({
+      auditId,
+      action: req.body?.action || "coupon_export_pro",
+      payload: req.body?.payload || {},
+      result: req.body?.result || {},
+    });
+    return res.json({
+      success: true,
+      auditId: saved.auditId,
+      id: saved.id,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Impossible de sauvegarder l'audit.",
       error: error.message,
     });
   }
