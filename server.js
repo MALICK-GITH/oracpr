@@ -1,4 +1,4 @@
-const path = require("path");
+﻿const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const sharp = require("sharp");
@@ -265,7 +265,7 @@ function localGeneralAnswer(message = "") {
 
 function buildSiteKnowledgeBlock() {
   return [
-    "BASE CONNAISSANCE SITE FIFA VIRTUAL PREDICTIONS (TOUS FORMATS):",
+    "BASE CONNAISSANCE SITE SOLITFIFPRO225 (TOUS FORMATS):",
     "- Pages: / (matchs live), /match.html?id=... (detail match), /coupon.html (coupon builder), /mode-emploi.html (guide), /about.html (createur), /developpeur.html (contacts).",
     "- Donnees matchs: API 1xBet LiveFeed (FIFA virtuel global), tri ligue, statut match, cotes 1X2 et marches additionnels.",
     "- Couverture: FC 24, FC 25, et toutes les ligues/formats FIFA virtuels presentes sur le site.",
@@ -567,8 +567,8 @@ function buildTelegramCouponText(payload = {}) {
     return lines.slice(0, 6).join("\n");
   }
   const lines = [
-    "COUPON OPTIMISE FC 25",
-    "Source: FC 25 Virtual Predictions",
+    "COUPON OPTIMISE SOLITFIFPRO225",
+    "Source: SOLITFIFPRO225",
     `Profil: ${riskProfile}`,
     `Selections: ${Number(summary.totalSelections) || coupon.length}`,
     `Cote combinee: ${formatOddForTelegram(summary.combinedOdd)}`,
@@ -655,7 +655,7 @@ function buildCouponImageSvg(payload = {}) {
   </defs>
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bg)"/>
   <rect x="28" y="20" width="${width - 56}" height="${headH - 30}" rx="18" fill="rgba(2,10,24,0.55)" stroke="rgba(125,255,207,0.35)" />
-  <text x="48" y="64" fill="url(#head)" font-size="32" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 COUPON PROFESSIONNEL</text>
+  <text x="48" y="64" fill="url(#head)" font-size="32" font-weight="800" font-family="Arial, Helvetica, sans-serif">SOLITFIFPRO225 COUPON PRO</text>
   <text x="48" y="92" fill="#d9ecff" font-size="18" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
     riskProfile
   )} | Selections ${Number(summary.totalSelections) || coupon.length} | Cote ${formatOddForTelegram(summary.combinedOdd)}</text>
@@ -717,7 +717,7 @@ function buildCouponStorySvg(payload = {}) {
   </defs>
   <rect x="0" y="0" width="${width}" height="${height}" fill="url(#bgStory)"/>
   <rect x="36" y="58" width="${width - 72}" height="186" rx="30" fill="rgba(2,10,24,0.55)" stroke="rgba(125,255,207,0.35)" />
-  <text x="62" y="124" fill="url(#headStory)" font-size="54" font-weight="800" font-family="Arial, Helvetica, sans-serif">FC 25 SNAP STORY</text>
+  <text x="62" y="124" fill="url(#headStory)" font-size="54" font-weight="800" font-family="Arial, Helvetica, sans-serif">SOLITFIFPRO225 SNAP STORY</text>
   <text x="62" y="168" fill="#d9ecff" font-size="30" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
     riskProfile
   )} | Selections ${Number(summary.totalSelections) || coupon.length}</text>
@@ -801,7 +801,7 @@ function buildCouponPdfSummaryLines(payload = {}) {
   const riskProfile = String(payload.riskProfile || "balanced");
   const generatedAt = new Date().toLocaleString("fr-FR");
   const lines = [
-    "FC 25 VIRTUAL PREDICTIONS - COUPON PDF",
+    "SOLITFIFPRO225 - COUPON PDF",
     "Signe: SOLITAIRE HACK",
     `Date: ${generatedAt}`,
     `Profil: ${riskProfile}`,
@@ -826,7 +826,7 @@ function buildCouponPdfQuickLines(payload = {}) {
   const summary = payload.summary || {};
   const generatedAt = new Date().toLocaleString("fr-FR");
   const lines = [
-    "FC 25 VIRTUAL PREDICTIONS - PDF ULTRA-COURT",
+    "SOLITFIFPRO225 - PDF ULTRA-COURT",
     `Date: ${generatedAt}`,
     `Selections: ${Number(summary.totalSelections) || coupon.length}`,
     `Cote combinee: ${formatOddForTelegram(summary.combinedOdd)}`,
@@ -861,7 +861,7 @@ function buildCouponPdfDetailedLines(payload = {}) {
   const highRiskCount = Math.max(0, coupon.length - safeCount - mediumCount);
 
   const lines = [
-    "FC 25 VIRTUAL PREDICTIONS - COUPON DETAILLE ANALYTIQUE",
+    "SOLITFIFPRO225 - COUPON DETAILLE ANALYTIQUE",
     "Signe: SOLITAIRE HACK",
     `Date: ${generatedAt}`,
     `Profil: ${riskProfile}`,
@@ -1025,7 +1025,7 @@ function buildPrintableCouponHtml(payload = {}) {
   <div class="wrap">
     <div class="head">
       <div>
-        <h1 class="title">FC 25 Coupon Ticket A4</h1>
+        <h1 class="title">SOLITFIFPRO225 Coupon Ticket A4</h1>
         <p class="sub">Genere le ${escapeXml(generatedAt)}</p>
         <p class="sub">Signe: SOLITAIRE HACK</p>
       </div>
@@ -1620,7 +1620,7 @@ async function sendTelegramCouponHandler(req, res) {
         chatId,
         new Blob([img], { type: mime }),
         `coupon-fc25-${Date.now()}.${ext}`,
-        "Coupon image - FC 25 Virtual Predictions | Signe: SOLITAIRE HACK"
+        "Coupon image - SOLITFIFPRO225 | Signe: SOLITAIRE HACK"
       );
       try {
         saveTelegramLog({
@@ -1758,7 +1758,7 @@ async function sendTelegramCouponPackHandler(req, res) {
       chatId,
       new Blob([imageBuffer], { type: imageFormat === "jpg" ? "image/jpeg" : "image/png" }),
       `coupon-fc25-${Date.now()}.${imageFormat === "jpg" ? "jpg" : "png"}`,
-      "Coupon image - FC 25 Virtual Predictions | Signe: SOLITAIRE HACK"
+      "Coupon image - SOLITFIFPRO225 | Signe: SOLITAIRE HACK"
     );
 
     const pdf = buildCouponPdfBuffer(req.body || {}, "quick");
@@ -1767,7 +1767,7 @@ async function sendTelegramCouponPackHandler(req, res) {
       chatId,
       new Blob([pdf], { type: "application/pdf" }),
       `coupon-fc25-rapide-${Date.now()}.pdf`,
-      "Coupon PDF rapide - FC 25 Virtual Predictions"
+      "Coupon PDF rapide - SOLITFIFPRO225"
     );
 
     try {
@@ -2405,3 +2405,4 @@ function startServer(startPort, triesLeft = MAX_PORT_TRIES) {
 }
 
 startServer(DEFAULT_PORT);
+
