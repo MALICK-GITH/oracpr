@@ -105,6 +105,14 @@
           <span>Simulation live 30s</span>
           <input id="liveSimSwitch" type="checkbox" />
         </label>
+        <label class="switch-line">
+          <span>Auto-Heal drift</span>
+          <input id="autoHealSwitch" type="checkbox" />
+        </label>
+        <label class="switch-line">
+          <span>Mode low-data mobile</span>
+          <input id="lowDataSwitch" type="checkbox" />
+        </label>
         <label>
           <span>Watchlist delta cote</span>
           <input id="watchDeltaInput" type="number" min="0.01" max="2" step="0.01" value="0.15" />
@@ -123,6 +131,7 @@
           <button id="sendTelegramImageBtn" type="button" disabled>Telegram Image</button>
           <button id="printA4Btn" type="button" disabled>Impression A4 + QR</button>
           <button id="downloadImageBtn" type="button" disabled>Image Coupon</button>
+          <button id="downloadPremiumImageBtn" type="button" disabled>Image Premium</button>
           <button id="downloadStoryBtn" type="button" disabled>Snap Story</button>
           <button id="downloadPdfQuickBtn" type="button" disabled>PDF Rapide</button>
           <button id="downloadPdfBtn" type="button" disabled>PDF Resume</button>
@@ -186,6 +195,15 @@
         <section class="panel" id="watchlistPanel">
           <h3>Watchlist Cotes</h3>
           <p>Aucune surveillance active.</p>
+        </section>
+        <section class="panel" id="ticketComparePanel">
+          <h3>Comparateur Tickets A/B</h3>
+          <div class="actions">
+            <button id="saveTicketABtn" type="button" disabled>Sauver Ticket A</button>
+            <button id="saveTicketBBtn" type="button" disabled>Sauver Ticket B</button>
+            <button id="compareTicketBtn" type="button" disabled>Comparer A vs B</button>
+          </div>
+          <p>Genere un coupon puis enregistre A et B pour comparer risque/rendement.</p>
         </section>
       </section>
       <footer class="site-signature">Signe par <strong>SOLITAIRE HACK</strong></footer>

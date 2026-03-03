@@ -26,6 +26,8 @@ const ODDS_JOURNAL_KEY = "fc25_odds_journal_v1";
 const AUTO_COUPON_INTERVAL_KEY = "fc25_auto_coupon_interval_v1";
 const AUTO_COUPON_QUALITY_KEY = "fc25_auto_coupon_quality_v1";
 const AUTO_COUPON_TG_KEY = "fc25_auto_coupon_tg_v1";
+const LOW_DATA_MODE_KEY = "fc25_low_data_mode_v1";
+const AUTO_HEAL_KEY = "fc25_auto_heal_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 let pageRefreshCouponIntervalId = null;
 let liveSimulationIntervalId = null;
@@ -33,7 +35,11 @@ let watchlistIntervalId = null;
 let autoCouponSchedulerId = null;
 let serverHistoryIntervalId = null;
 let autoCouponRunning = false;
+let autoHealRunning = false;
+let couponCountdownIntervalId = null;
 const stabilityCache = new Map();
+let ticketSnapshotA = null;
+let ticketSnapshotB = null;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -138,6 +144,23 @@ function isAutoCouponTelegramEnabled() {
 
 function setAutoCouponTelegramEnabled(value) {
   localStorage.setItem(AUTO_COUPON_TG_KEY, value ? "1" : "0");
+}
+
+function isLowDataModeEnabled() {
+  return localStorage.getItem(LOW_DATA_MODE_KEY) === "1";
+}
+
+function setLowDataModeEnabled(value) {
+  localStorage.setItem(LOW_DATA_MODE_KEY, value ? "1" : "0");
+  document.body.classList.toggle("low-data", Boolean(value));
+}
+
+function isAutoHealEnabled() {
+  return localStorage.getItem(AUTO_HEAL_KEY) !== "0";
+}
+
+function setAutoHealEnabled(value) {
+  localStorage.setItem(AUTO_HEAL_KEY, value ? "1" : "0");
 }
 
 function readAlertCenter() {
@@ -480,6 +503,63 @@ function explainPickSimple(pick, riskProfile = "balanced") {
   return `Coach IA: ${riskText}, ${oddText}, depart ${startMin} min, mode ${riskProfile}.`;
 }
 
+function buildReplayLines(pick, riskProfile = "balanced") {
+  const conf = Number(pick?.confiance || 0);
+  const odd = Number(pick?.cote || 0);
+  const startMin = Math.max(0, Math.floor((Number(pick?.startTimeUnix || 0) - Math.floor(Date.now() / 1000)) / 60));
+  const quality = computeDataQualityScore(pick);
+  return [
+    `Signal: confiance ${conf.toFixed(1)}% avec cote ${formatOdd(odd)} en mode ${riskProfile}.`,
+    `Qualite donnees: ${quality.score}/100 (fraicheur ${quality.freshness}, stabilite ${quality.stability}, API ${quality.apiConfidence}).`,
+    `Timing: demarrage dans ${startMin} min, donc ${startMin <= 8 ? "execution prioritaire" : "fenetre encore confortable"}.`,
+  ];
+}
+
+function computeDataQualityScore(pick = {}) {
+  const now = Date.now();
+  const updatedAtMs = pick?.updatedAt ? new Date(pick.updatedAt).getTime() : now;
+  const ageSec = Math.max(0, Math.floor((now - updatedAtMs) / 1000));
+  const freshness = clamp(Math.round(100 - ageSec / 3), 15, 100);
+  const stability = clamp(Math.round(Number(pick?.stabilityScore || 55)), 5, 100);
+  const apiConfidence = clamp(Math.round(Number(pick?.confiance || 0)), 5, 100);
+  const score = clamp(Math.round(freshness * 0.34 + stability * 0.36 + apiConfidence * 0.3), 5, 100);
+  return { score, freshness, stability, apiConfidence };
+}
+
+function formatMatchLocalDateTime(unixSeconds) {
+  const n = Number(unixSeconds);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return formatDateTime(n * 1000);
+}
+
+function formatCountdownLabel(unixSeconds) {
+  const n = Number(unixSeconds);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  const diff = Math.floor(n - Date.now() / 1000);
+  if (diff <= 0) return "Demarre";
+  const h = Math.floor(diff / 3600);
+  const m = Math.floor((diff % 3600) / 60);
+  const s = diff % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
+}
+
+function startCouponCountdownTimer() {
+  if (couponCountdownIntervalId) {
+    clearInterval(couponCountdownIntervalId);
+    couponCountdownIntervalId = null;
+  }
+  const run = () => {
+    const nodes = document.querySelectorAll("[data-countdown-start]");
+    for (const node of nodes) {
+      const start = Number(node.getAttribute("data-countdown-start"));
+      node.textContent = `T- ${formatCountdownLabel(start)}`;
+    }
+  };
+  run();
+  couponCountdownIntervalId = setInterval(run, 1000);
+}
+
 function pickOptionFromDetails(details, profile = "balanced") {
   const cfg = riskConfig(profile);
   const master = details?.prediction?.maitre?.decision_finale || {};
@@ -642,6 +722,7 @@ function updateSendButtonState() {
   const stickyImageBtn = document.getElementById("sendTelegramImageBtnSticky");
   const replaceWeakBtn = document.getElementById("replaceWeakBtn");
   const imageBtn = document.getElementById("downloadImageBtn");
+  const premiumImageBtn = document.getElementById("downloadPremiumImageBtn");
   const storyBtn = document.getElementById("downloadStoryBtn");
   const pdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
   const pdfBtn = document.getElementById("downloadPdfBtn");
@@ -662,6 +743,7 @@ function updateSendButtonState() {
   if (stickyImageBtn) stickyImageBtn.disabled = !enabled;
   if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled || frozen;
   if (imageBtn) imageBtn.disabled = !enabled;
+  if (premiumImageBtn) premiumImageBtn.disabled = !enabled;
   if (storyBtn) storyBtn.disabled = !enabled;
   if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
@@ -1096,6 +1178,9 @@ async function updateWatchlistLive() {
 async function refreshLiveSimulation() {
   if (!isLiveSimulationEnabled() || !lastCouponData?.coupon?.length) return;
   await hydrateCouponStability(lastCouponData.coupon);
+  if (isAutoHealEnabled()) {
+    await autoHealCouponByDrift();
+  }
   const picks = lastCouponData.coupon;
   const ev = computeCouponEV(picks);
   const stabilityValues = picks.map((x) => Number(x.stabilityScore)).filter((x) => Number.isFinite(x));
@@ -1110,6 +1195,64 @@ async function refreshLiveSimulation() {
   }
 }
 
+async function autoHealCouponByDrift() {
+  if (autoHealRunning || !lastCouponData?.coupon?.length) return;
+  autoHealRunning = true;
+  try {
+    const threshold = getDriftThreshold();
+    let replaced = 0;
+    const updated = [...lastCouponData.coupon];
+    for (let i = 0; i < updated.length; i += 1) {
+      const pick = updated[i];
+      if (!pick?.matchId) continue;
+      try {
+        const res = await fetch(`/api/matches/${encodeURIComponent(pick.matchId)}/details`, { cache: "no-store" });
+        const details = await readJsonSafe(res);
+        if (!res.ok || !details?.success) continue;
+        const markets = Array.isArray(details.bettingMarkets) ? details.bettingMarkets : [];
+        const m = markets.find((x) => String(x.nom || "") === String(pick.pari || ""));
+        const liveOdd = Number(m?.cote || 0);
+        const baseOdd = Number(pick?.cote || 0);
+        if (!(liveOdd > 0 && baseOdd > 0)) continue;
+        const drift = Math.abs(((liveOdd - baseOdd) / baseOdd) * 100);
+        if (drift <= threshold) continue;
+        const rec = pickOptionFromDetails(details, lastCouponData.riskProfile || "balanced");
+        if (!rec?.pari) continue;
+        if (String(rec.pari) === String(pick.pari)) {
+          updated[i] = { ...pick, cote: Number(rec.cote || liveOdd), updatedAt: new Date().toISOString() };
+        } else {
+          updated[i] = {
+            ...pick,
+            pari: rec.pari,
+            cote: Number(rec.cote || liveOdd),
+            confiance: Number(rec.confiance || pick.confiance || 50),
+            source: rec.source || "AUTO_HEAL",
+            updatedAt: new Date().toISOString(),
+          };
+          replaced += 1;
+        }
+      } catch {}
+    }
+    if (replaced > 0) {
+      lastCouponData = {
+        ...lastCouponData,
+        coupon: updated,
+        summary: createCouponSummary(updated),
+        warning: `Auto-heal actif: ${replaced} pick(s) ajustes automatiquement suite au drift.`,
+      };
+      renderCoupon(lastCouponData);
+      pushAlert({
+        severity: "medium",
+        title: "Auto-heal drift execute",
+        detail: `${replaced} selection(s) corrigee(s) automatiquement.`,
+        type: "auto_heal",
+      });
+    }
+  } finally {
+    autoHealRunning = false;
+  }
+}
+
 function restartLiveMonitors() {
   if (liveSimulationIntervalId) {
     clearInterval(liveSimulationIntervalId);
@@ -1120,13 +1263,18 @@ function restartLiveMonitors() {
     watchlistIntervalId = null;
   }
 
-  if (isLiveSimulationEnabled()) {
+  if (isLiveSimulationEnabled() || isAutoHealEnabled()) {
+    const periodMs = isLowDataModeEnabled() ? 60000 : 30000;
     liveSimulationIntervalId = setInterval(() => {
-      refreshLiveSimulation();
-    }, 30000);
+      if (isLiveSimulationEnabled()) {
+        refreshLiveSimulation();
+      } else if (isAutoHealEnabled()) {
+        autoHealCouponByDrift();
+      }
+    }, periodMs);
     watchlistIntervalId = setInterval(() => {
-      updateWatchlistLive();
-    }, 30000);
+      if (!isLowDataModeEnabled()) updateWatchlistLive();
+    }, periodMs);
   }
 }
 
@@ -1449,6 +1597,7 @@ async function hydrateCouponStability(picks = []) {
     const id = String(pick.matchId || "");
     if (!id) continue;
     const host = document.getElementById(`stability-${id}`);
+    const qualityHost = document.getElementById(`quality-${id}`);
     try {
       let data = stabilityCache.get(id);
       if (!data) {
@@ -1462,6 +1611,10 @@ async function hydrateCouponStability(picks = []) {
         host.textContent = `Stabilite ${data.stability}/100 | Drift ${data.driftPct}% | Marches ${data.marketCount}`;
       }
       pick.stabilityScore = data.stability;
+      pick.updatedAt = new Date().toISOString();
+      const q = computeDataQualityScore(pick);
+      pick.qualityScore = q.score;
+      if (qualityHost) qualityHost.textContent = `Qualite donnees: ${q.score}/100`;
     } catch {
       if (host) host.textContent = "Stabilite: indisponible";
     }
@@ -1558,11 +1711,18 @@ function renderCoupon(data) {
   }
 
   const items = picks
-    .map(
-      (p, i) => `
+    .map((p, i) => {
+      const q = computeDataQualityScore(p);
+      const replay = buildReplayLines(p, data.riskProfile || "balanced")
+        .map((x) => `<li>${x}</li>`)
+        .join("");
+      return `
       <li>
         <strong>${i + 1}. ${p.teamHome} vs ${p.teamAway}</strong>
         <span>Ligue: ${p.league || "Non specifiee"}</span>
+        <span>Heure locale: ${formatMatchLocalDateTime(p.startTimeUnix)} | <strong data-countdown-start="${Number(
+        p.startTimeUnix || 0
+      )}">T- ${formatCountdownLabel(p.startTimeUnix)}</strong></span>
         <span>${p.pari}</span>
         <span>Cote ${formatOdd(p.cote)} | Confiance ${p.confiance}%</span>
         <span>EV ${computePickEV(p) >= 0 ? "+" : ""}${computePickEV(p).toFixed(3)}</span>
@@ -1570,11 +1730,13 @@ function renderCoupon(data) {
           p.confiance || 0
         ).toFixed(0)}%</em></div>
         <span class="stability-badge" id="stability-${String(p.matchId)}">Stabilite: calcul...</span>
+        <span class="quality-badge" id="quality-${String(p.matchId)}">Qualite donnees: ${q.score}/100</span>
         <div class="coach-pick-line">${explainPickSimple(p, data.riskProfile || "balanced")}</div>
+        <ul class="replay-list">${replay}</ul>
         <a href="/match.html?id=${encodeURIComponent(p.matchId)}">Voir detail match</a>
       </li>
-    `
-    )
+    `;
+    })
     .join("");
 
   const insights = computeCouponInsights(picks, data.riskProfile || "balanced");
@@ -1607,6 +1769,7 @@ function renderCoupon(data) {
     <p class="warning">${data.warning || ""}</p>
   `);
   renderHealthPanel(picks, data.riskProfile || "balanced", data.summary || {});
+  startCouponCountdownTimer();
   appendOddsJournalSnapshot("generation", picks);
   renderOddsJournalPanel();
   if (Number(insights.qualityScore || 0) < 60) {
@@ -1626,19 +1789,22 @@ function renderCoupon(data) {
     at: new Date().toISOString(),
     note: `${data.summary?.totalSelections ?? 0} selections | cote ${formatOdd(data.summary?.combinedOdd)} | profil ${data.riskProfile || "balanced"}`,
   });
-  hydrateCouponStability(picks).then(() => {
-    const values = picks.map((x) => Number(x.stabilityScore)).filter((x) => Number.isFinite(x));
-    if (!values.length) return;
-    const avg = Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(1));
-    const meta = document.querySelector("#result .meta");
-    if (!meta) return;
-    const exists = [...meta.querySelectorAll("span")].some((x) => String(x.textContent || "").includes("Stabilite moyenne"));
-    if (exists) return;
-    const span = document.createElement("span");
-    span.textContent = `Stabilite moyenne: ${avg}/100`;
-    meta.appendChild(span);
-  });
+  if (!isLowDataModeEnabled()) {
+    hydrateCouponStability(picks).then(() => {
+      const values = picks.map((x) => Number(x.stabilityScore)).filter((x) => Number.isFinite(x));
+      if (!values.length) return;
+      const avg = Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(1));
+      const meta = document.querySelector("#result .meta");
+      if (!meta) return;
+      const exists = [...meta.querySelectorAll("span")].some((x) => String(x.textContent || "").includes("Stabilite moyenne"));
+      if (exists) return;
+      const span = document.createElement("span");
+      span.textContent = `Stabilite moyenne: ${avg}/100`;
+      meta.appendChild(span);
+    });
+  }
   suggestStakeFromProfile();
+  renderTicketComparePanel();
 }
 
 async function buildBackupPlan(coupon = [], profile = "balanced") {
@@ -1725,6 +1891,100 @@ async function renderMultiStrategy() {
     }
     <div class="risk-grid">${cards.join("")}</div>
   `;
+}
+
+function buildTicketSnapshot(label = "A") {
+  if (!lastCouponData?.coupon?.length) return null;
+  const summary = lastCouponData.summary || createCouponSummary(lastCouponData.coupon);
+  const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+  const stake = getStakeValue();
+  const odd = Number(summary.combinedOdd || 1);
+  const p = clamp(Number(summary.averageConfidence || 0) / 100, 0.03, 0.97);
+  const expectedNet = Number((stake * (odd * p - 1)).toFixed(2));
+  const riskIndex = clamp(Math.round((100 - insights.qualityScore) * 0.55 + insights.correlationRisk * 0.45), 1, 99);
+  return {
+    label,
+    at: new Date().toISOString(),
+    riskProfile: lastCouponData.riskProfile || "balanced",
+    summary,
+    insights,
+    stake,
+    expectedNet,
+    riskIndex,
+    picks: lastCouponData.coupon.map((x) => ({
+      teamHome: x.teamHome,
+      teamAway: x.teamAway,
+      pari: x.pari,
+      cote: x.cote,
+      confiance: x.confiance,
+      startTimeUnix: x.startTimeUnix,
+    })),
+  };
+}
+
+function renderTicketComparePanel() {
+  const panel = document.getElementById("ticketComparePanel");
+  if (!panel) return;
+  const hasA = Boolean(ticketSnapshotA);
+  const hasB = Boolean(ticketSnapshotB);
+  const compareBtn = document.getElementById("compareTicketBtn");
+  const saveABtn = document.getElementById("saveTicketABtn");
+  const saveBBtn = document.getElementById("saveTicketBBtn");
+  if (compareBtn) compareBtn.disabled = !(hasA && hasB);
+  if (saveABtn) saveABtn.disabled = !lastCouponData?.coupon?.length;
+  if (saveBBtn) saveBBtn.disabled = !lastCouponData?.coupon?.length;
+
+  if (!hasA && !hasB) return;
+  const card = (t) =>
+    t
+      ? `<div class="risk-card">
+          <h4>Ticket ${t.label}</h4>
+          <div>Profil: ${t.riskProfile}</div>
+          <div>Qualite: ${t.insights?.qualityScore || 0}/100</div>
+          <div>Risque: ${t.riskIndex}/100</div>
+          <div>Gain net estime: ${t.expectedNet.toFixed(2)}</div>
+          <div>Cote: ${formatOdd(t.summary?.combinedOdd)}</div>
+        </div>`
+      : `<div class="risk-card"><h4>Ticket -</h4><div>Non defini</div></div>`;
+  let decision = "";
+  if (hasA && hasB) {
+    const qa = Number(ticketSnapshotA?.insights?.qualityScore || 0);
+    const qb = Number(ticketSnapshotB?.insights?.qualityScore || 0);
+    const ra = Number(ticketSnapshotA?.riskIndex || 0);
+    const rb = Number(ticketSnapshotB?.riskIndex || 0);
+    const choose = qb > qa || (qb === qa && rb < ra) ? "B" : "A";
+    decision = `<p>Comparateur: meilleur compromis actuel <strong>Ticket ${choose}</strong>.</p>`;
+  }
+  panel.innerHTML = `
+    <h3>Comparateur Tickets A/B</h3>
+    <div class="actions">
+      <button id="saveTicketABtn" type="button" ${lastCouponData?.coupon?.length ? "" : "disabled"}>Sauver Ticket A</button>
+      <button id="saveTicketBBtn" type="button" ${lastCouponData?.coupon?.length ? "" : "disabled"}>Sauver Ticket B</button>
+      <button id="compareTicketBtn" type="button" ${hasA && hasB ? "" : "disabled"}>Comparer A vs B</button>
+    </div>
+    ${decision}
+    <div class="risk-grid">${card(ticketSnapshotA)}${card(ticketSnapshotB)}</div>
+  `;
+  const saveANew = document.getElementById("saveTicketABtn");
+  const saveBNew = document.getElementById("saveTicketBBtn");
+  const compareNew = document.getElementById("compareTicketBtn");
+  if (saveANew) {
+    saveANew.addEventListener("click", () => {
+      ticketSnapshotA = buildTicketSnapshot("A");
+      renderTicketComparePanel();
+    });
+  }
+  if (saveBNew) {
+    saveBNew.addEventListener("click", () => {
+      ticketSnapshotB = buildTicketSnapshot("B");
+      renderTicketComparePanel();
+    });
+  }
+  if (compareNew) {
+    compareNew.addEventListener("click", () => {
+      renderTicketComparePanel();
+    });
+  }
 }
 
 async function fetchValidationReport(payload) {
@@ -2111,25 +2371,35 @@ async function downloadCouponImage(mode = "default") {
     return;
   }
   try {
-    await enforceTicketShield(mode === "story" ? "export story" : "export image");
+    await enforceTicketShield(mode === "story" ? "export story" : mode === "premium" ? "export image premium" : "export image");
     const format = mode === "story" ? "jpg" : "png";
     const blob = await fetchCouponImageBlob(mode, format);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `coupon-fc25-${mode === "story" ? "story" : "image"}-${Date.now()}.${format}`;
+    const suffix = mode === "story" ? "story" : mode === "premium" ? "premium" : "image";
+    a.download = `coupon-fc25-${suffix}-${Date.now()}.${format}`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     if (panel) {
-      panel.innerHTML = `<p>${mode === "story" ? "Snap Story" : "Image coupon"} telecharge${mode === "story" ? "" : "e"}.</p><div class="coupon-image-preview"><img src="${url}" alt="Apercu coupon image"/></div>`;
+      panel.innerHTML = `<p>${
+        mode === "story" ? "Snap Story" : mode === "premium" ? "Image premium" : "Image coupon"
+      } telecharge${mode === "story" ? "" : "e"}.</p><div class="coupon-image-preview"><img src="${url}" alt="Apercu coupon image"/></div>`;
     }
     addHistoryEntry({
       type: "pdf",
       at: new Date().toISOString(),
-      note: `Export ${mode === "story" ? "snap story" : "image coupon"} | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
+      note: `Export ${
+        mode === "story" ? "snap story" : mode === "premium" ? "image premium" : "image coupon"
+      } | ${lastCouponData.summary?.totalSelections ?? 0} selections`,
     });
-    notifyEvent("Coupon envoye", `${mode === "story" ? "Snap story" : "Image coupon"} telecharge${mode === "story" ? "" : "e"}.`);
+    notifyEvent(
+      "Coupon envoye",
+      `${mode === "story" ? "Snap story" : mode === "premium" ? "Image premium" : "Image coupon"} telecharge${
+        mode === "story" ? "" : "e"
+      }.`
+    );
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   } catch (error) {
     if (panel) panel.innerHTML = `<p>Erreur image: ${error.message}</p>`;
@@ -2530,6 +2800,7 @@ const analyzeJournalBtn = document.getElementById("analyzeJournalBtn");
 const replayJournalBtn = document.getElementById("replayJournalBtn");
 const watchlistFromCouponBtn = document.getElementById("watchlistFromCouponBtn");
 const downloadImageBtn = document.getElementById("downloadImageBtn");
+const downloadPremiumImageBtn = document.getElementById("downloadPremiumImageBtn");
 const downloadStoryBtn = document.getElementById("downloadStoryBtn");
 const downloadPdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
 const downloadPdfBtn = document.getElementById("downloadPdfBtn");
@@ -2540,6 +2811,9 @@ const validateBtnSticky = document.getElementById("validateBtnSticky");
 const sendTelegramBtnSticky = document.getElementById("sendTelegramBtnSticky");
 const sendTelegramImageBtnSticky = document.getElementById("sendTelegramImageBtnSticky");
 const downloadPdfBtnSticky = document.getElementById("downloadPdfBtnSticky");
+const saveTicketABtn = document.getElementById("saveTicketABtn");
+const saveTicketBBtn = document.getElementById("saveTicketBBtn");
+const compareTicketBtn = document.getElementById("compareTicketBtn");
 
 if (generateBtn) generateBtn.addEventListener("click", generateCoupon);
 if (generateLadderBtn) generateLadderBtn.addEventListener("click", generateLadderCoupons);
@@ -2587,8 +2861,26 @@ if (watchlistFromCouponBtn) {
 if (downloadImageBtn) {
   downloadImageBtn.addEventListener("click", () => downloadCouponImage("default"));
 }
+if (downloadPremiumImageBtn) {
+  downloadPremiumImageBtn.addEventListener("click", () => downloadCouponImage("premium"));
+}
 if (downloadStoryBtn) {
   downloadStoryBtn.addEventListener("click", () => downloadCouponImage("story"));
+}
+if (saveTicketABtn) {
+  saveTicketABtn.addEventListener("click", () => {
+    ticketSnapshotA = buildTicketSnapshot("A");
+    renderTicketComparePanel();
+  });
+}
+if (saveTicketBBtn) {
+  saveTicketBBtn.addEventListener("click", () => {
+    ticketSnapshotB = buildTicketSnapshot("B");
+    renderTicketComparePanel();
+  });
+}
+if (compareTicketBtn) {
+  compareTicketBtn.addEventListener("click", renderTicketComparePanel);
 }
 if (generateBtnSticky) {
   generateBtnSticky.addEventListener("click", generateCoupon);
@@ -2717,6 +3009,25 @@ async function initCouponPage() {
     });
   }
 
+  const autoHealSwitch = document.getElementById("autoHealSwitch");
+  if (autoHealSwitch) {
+    autoHealSwitch.checked = isAutoHealEnabled();
+    autoHealSwitch.addEventListener("change", () => {
+      setAutoHealEnabled(autoHealSwitch.checked);
+    });
+  }
+
+  const lowDataSwitch = document.getElementById("lowDataSwitch");
+  if (lowDataSwitch) {
+    lowDataSwitch.checked = isLowDataModeEnabled();
+    setLowDataModeEnabled(lowDataSwitch.checked);
+    lowDataSwitch.addEventListener("change", () => {
+      setLowDataModeEnabled(lowDataSwitch.checked);
+      restartLiveMonitors();
+      renderTicketComparePanel();
+    });
+  }
+
   await loadLeagues();
   renderHistory();
   renderAlertsPanel();
@@ -2724,6 +3035,7 @@ async function initCouponPage() {
   renderServerHistoryPanel();
   renderPerformanceJournal();
   renderWatchlistPanel();
+  renderTicketComparePanel();
   updateSendButtonState();
   restartLiveMonitors();
   restartServerHistoryMonitor();
@@ -2777,6 +3089,7 @@ function registerCouponSiteControl() {
       "analyze_journal",
       "replay_journal",
       "download_image",
+      "download_image_premium",
       "download_story",
       "download_pdf_quick",
       "download_pdf_summary",
@@ -2792,6 +3105,8 @@ function registerCouponSiteControl() {
       "set_freeze_minutes",
       "set_bankroll_profile",
       "set_live_simulation",
+      "set_auto_heal",
+      "set_low_data_mode",
       "build_watchlist",
     ],
     async execute(name, payload = {}) {
@@ -2812,6 +3127,7 @@ function registerCouponSiteControl() {
       if (action === "replay_journal") return renderPerformanceReplay();
       if (action === "build_watchlist") return buildWatchlistFromCoupon();
       if (action === "download_image") return downloadCouponImage("default");
+      if (action === "download_image_premium") return downloadCouponImage("premium");
       if (action === "download_story") return downloadCouponImage("story");
       if (action === "download_pdf_quick") return downloadCouponPdf("quick");
       if (action === "download_pdf_summary") return downloadCouponPdf("summary");
@@ -2877,6 +3193,21 @@ function registerCouponSiteControl() {
         const enabled = payload?.enabled !== false;
         setLiveSimulationEnabled(enabled);
         const sw = document.getElementById("liveSimSwitch");
+        if (sw) sw.checked = enabled;
+        restartLiveMonitors();
+        return true;
+      }
+      if (action === "set_auto_heal") {
+        const enabled = payload?.enabled !== false;
+        setAutoHealEnabled(enabled);
+        const sw = document.getElementById("autoHealSwitch");
+        if (sw) sw.checked = enabled;
+        return true;
+      }
+      if (action === "set_low_data_mode") {
+        const enabled = payload?.enabled !== false;
+        setLowDataModeEnabled(enabled);
+        const sw = document.getElementById("lowDataSwitch");
         if (sw) sw.checked = enabled;
         restartLiveMonitors();
         return true;

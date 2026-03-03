@@ -409,7 +409,18 @@ function deriveControlActions(message, context = {}) {
     } else if (text.includes("simulation live off")) {
       actions.push({ type: "site_control", name: "set_live_simulation", payload: { enabled: false } });
     }
+    if (text.includes("auto heal on")) {
+      actions.push({ type: "site_control", name: "set_auto_heal", payload: { enabled: true } });
+    } else if (text.includes("auto heal off")) {
+      actions.push({ type: "site_control", name: "set_auto_heal", payload: { enabled: false } });
+    }
+    if (text.includes("low data on")) {
+      actions.push({ type: "site_control", name: "set_low_data_mode", payload: { enabled: true } });
+    } else if (text.includes("low data off")) {
+      actions.push({ type: "site_control", name: "set_low_data_mode", payload: { enabled: false } });
+    }
     if (text.includes("image coupon")) actions.push({ type: "site_control", name: "download_image" });
+    if (text.includes("image premium")) actions.push({ type: "site_control", name: "download_image_premium" });
     if (text.includes("story")) actions.push({ type: "site_control", name: "download_story" });
   }
 
@@ -727,6 +738,76 @@ function buildCouponStorySvg(payload = {}) {
   ${cards.join("\n")}
   <text x="62" y="${height - 74}" fill="#cfe6ff" font-size="24" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK</text>
   <text x="62" y="${height - 40}" fill="#cfe6ff" font-size="18" font-family="Arial, Helvetica, sans-serif">Aucune combinaison n'est garantie gagnante.</text>
+</svg>`;
+}
+
+function buildCouponPremiumSvg(payload = {}) {
+  const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
+  const summary = payload.summary || {};
+  const riskProfile = String(payload.riskProfile || "balanced");
+  const picks = coupon.slice(0, 8);
+  const count = Math.max(1, picks.length || 1);
+  const width = 1400;
+  const headH = 190;
+  const cardH = 146;
+  const gap = 12;
+  const footH = 50;
+  const height = headH + footH + count * cardH + (count - 1) * gap;
+  const generatedAt = formatDateTime(new Date());
+
+  const rows = picks
+    .map((pick, idx) => {
+      const y = headH + idx * (cardH + gap);
+      const home = escapeXml(pick.teamHome || "Equipe 1");
+      const away = escapeXml(pick.teamAway || "Equipe 2");
+      const league = escapeXml(pick.league || "Ligue virtuelle");
+      const bet = escapeXml(pick.pari || "-");
+      const odd = formatOddForTelegram(pick.cote);
+      const conf = Number(pick?.confiance || 0).toFixed(1);
+      const startAt = escapeXml(formatMatchStartTimeUnix(pick.startTimeUnix));
+      const q = Number(pick?.qualityScore || pick?.dataQuality || pick?.confiance || 0).toFixed(0);
+      return `
+      <g transform="translate(32, ${y})">
+        <rect x="0" y="0" width="${width - 64}" height="${cardH}" rx="14" fill="rgba(11,18,30,0.96)" stroke="rgba(152,198,255,0.28)"/>
+        <text x="18" y="28" fill="#9ec1ef" font-size="14" font-weight="700">${idx + 1}. ${league}</text>
+        <text x="${width - 108}" y="28" text-anchor="end" fill="#9ec1ef" font-size="13">Heure ${startAt}</text>
+        <text x="20" y="72" fill="#f4f9ff" font-size="28" font-weight="800">${home}</text>
+        <text x="${(width - 64) / 2}" y="72" text-anchor="middle" fill="#8fd3ff" font-size="18" font-weight="700">VS</text>
+        <text x="${width - 86}" y="72" text-anchor="end" fill="#f4f9ff" font-size="28" font-weight="800">${away}</text>
+
+        <rect x="18" y="88" width="${width - 100}" height="40" rx="9" fill="rgba(18,29,48,0.95)" stroke="rgba(124,177,240,0.25)"/>
+        <text x="28" y="113" fill="#d6e8ff" font-size="17" font-weight="700">${bet}</text>
+        <text x="${width - 120}" y="114" text-anchor="end" fill="#7dffcf" font-size="28" font-weight="900">${odd}</text>
+        <text x="${width - 56}" y="104" text-anchor="end" fill="#bad3f1" font-size="11">Conf</text>
+        <text x="${width - 56}" y="121" text-anchor="end" fill="#bad3f1" font-size="11">${conf}% | Q${q}</text>
+      </g>`;
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="premBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#040b17"/>
+      <stop offset="48%" stop-color="#0b2448"/>
+      <stop offset="100%" stop-color="#0f335e"/>
+    </linearGradient>
+    <linearGradient id="premHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#16e3ff"/>
+      <stop offset="100%" stop-color="#7dffcf"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="${width}" height="${height}" fill="url(#premBg)"/>
+  <rect x="20" y="18" width="${width - 40}" height="${headH - 32}" rx="18" fill="rgba(5,13,24,0.72)" stroke="rgba(139,206,255,0.38)" />
+  <text x="40" y="64" fill="url(#premHead)" font-size="36" font-weight="900" font-family="Arial, Helvetica, sans-serif">SOLITFIFPRO225 PREMIUM TICKET</text>
+  <text x="40" y="98" fill="#d7e9ff" font-size="18" font-family="Arial, Helvetica, sans-serif">Profil ${escapeXml(
+    riskProfile
+  )} | Selections ${Number(summary.totalSelections) || coupon.length} | Cote combinee ${formatOddForTelegram(summary.combinedOdd)}</text>
+  <text x="40" y="126" fill="#b6cee7" font-size="14" font-family="Arial, Helvetica, sans-serif">Genere le ${escapeXml(
+    generatedAt
+  )} | Format ticket bookmaker lisible mobile + desktop</text>
+  ${rows}
+  <text x="40" y="${height - 20}" fill="#cfe6ff" font-size="14" font-family="Arial, Helvetica, sans-serif">Signe: SOLITAIRE HACK | Aucune combinaison n'est garantie gagnante.</text>
 </svg>`;
 }
 
@@ -1463,18 +1544,23 @@ async function generateCouponImageHandler(req, res) {
     }
     const mode = String(req.body?.mode || "default").toLowerCase();
     const isStory = mode === "story" || mode === "snap";
+    const isPremium = mode === "premium" || mode === "pro";
     const requested = req.body?.format || req.query?.format || (isStory ? "jpg" : "png");
     const format = normalizeImageFormat(requested, isStory ? "jpg" : "png");
-    const svg = isStory ? buildCouponStorySvg(req.body || {}) : buildCouponImageSvg(req.body || {});
+    const svg = isStory
+      ? buildCouponStorySvg(req.body || {})
+      : isPremium
+      ? buildCouponPremiumSvg(req.body || {})
+      : buildCouponImageSvg(req.body || {});
     if (format === "svg") {
-      const filename = `coupon-fc25-${isStory ? "story" : "image"}-${Date.now()}.svg`;
+      const filename = `coupon-fc25-${isStory ? "story" : isPremium ? "premium" : "image"}-${Date.now()}.svg`;
       res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       return res.send(svg);
     }
     const output = await rasterizeSvg(svg, format);
     const ext = format === "jpg" ? "jpg" : "png";
-    const filename = `coupon-fc25-${isStory ? "story" : "image"}-${Date.now()}.${ext}`;
+    const filename = `coupon-fc25-${isStory ? "story" : isPremium ? "premium" : "image"}-${Date.now()}.${ext}`;
     res.setHeader("Content-Type", format === "jpg" ? "image/jpeg" : "image/png");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.send(output);
@@ -1571,6 +1657,12 @@ app.post("/api/coupon/image/svg", (req, res) =>
 app.post("/api/coupon/image/story", (req, res) =>
   generateCouponImageHandler(
     { ...req, body: { ...(req.body || {}), mode: "story", format: req.body?.format || "jpg" } },
+    res
+  )
+);
+app.post("/api/coupon/image/premium", (req, res) =>
+  generateCouponImageHandler(
+    { ...req, body: { ...(req.body || {}), mode: "premium", format: req.body?.format || "png" } },
     res
   )
 );

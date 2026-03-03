@@ -151,6 +151,7 @@ h1 {
 #sendTelegramImageBtn,
 #printA4Btn,
 #downloadImageBtn,
+#downloadPremiumImageBtn,
 #downloadStoryBtn,
 #downloadPdfQuickBtn,
 #downloadPdfBtn,
@@ -239,6 +240,11 @@ h1 {
   background: linear-gradient(90deg, #a8ffb7, #ddffd8);
 }
 
+#downloadPremiumImageBtn {
+  color: #051120;
+  background: linear-gradient(90deg, #9fffe8, #cbfff5);
+}
+
 #downloadStoryBtn {
   color: #051120;
   background: linear-gradient(90deg, #ffd2f2, #ffdff8);
@@ -279,6 +285,29 @@ h1 {
   background: linear-gradient(90deg, #d8f8ff, #eafcff);
 }
 
+#saveTicketABtn,
+#saveTicketBBtn,
+#compareTicketBtn {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.56rem 0.82rem;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+  color: #051120;
+}
+
+#saveTicketABtn { background: linear-gradient(90deg, #caf0ff, #e7f9ff); }
+#saveTicketBBtn { background: linear-gradient(90deg, #cfffd9, #e9ffee); }
+#compareTicketBtn { background: linear-gradient(90deg, #ffd9a7, #fff0d2); }
+
+#saveTicketABtn:disabled,
+#saveTicketBBtn:disabled,
+#compareTicketBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 #generateBtn:active,
 #generateLadderBtn:active,
 #generateMultiBtn:active,
@@ -291,6 +320,7 @@ h1 {
 #sendTelegramImageBtn:active,
 #printA4Btn:active,
 #downloadImageBtn:active,
+#downloadPremiumImageBtn:active,
 #downloadStoryBtn:active,
 #downloadPdfQuickBtn:active,
 #downloadPdfBtn:active,
@@ -311,6 +341,7 @@ h1 {
 #sendTelegramImageBtn::after,
 #printA4Btn::after,
 #downloadImageBtn::after,
+#downloadPremiumImageBtn::after,
 #downloadStoryBtn::after,
 #downloadPdfQuickBtn::after,
 #downloadPdfBtn::after,
@@ -341,6 +372,7 @@ h1 {
 #sendTelegramMiniBtn:disabled,
 #printA4Btn:disabled,
 #downloadImageBtn:disabled,
+#downloadPremiumImageBtn:disabled,
 #downloadStoryBtn:disabled,
 #replaceWeakBtn:disabled,
 #simulateBankrollBtn:disabled,
@@ -541,6 +573,46 @@ li a {
   border: 1px solid rgba(125, 255, 173, 0.36);
   color: #c9ffe0;
   background: rgba(125, 255, 173, 0.12);
+}
+
+.quality-badge {
+  margin-top: 0.3rem;
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid rgba(144, 255, 255, 0.35);
+  color: #cdfdff;
+  background: rgba(77, 203, 238, 0.14);
+}
+
+.replay-list {
+  margin-top: 0.38rem;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.replay-list li {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 0.78rem;
+  color: #d2e7ff;
+}
+
+body.low-data .secondary-grid {
+  grid-template-columns: 1fr;
+}
+
+body.low-data #serverHistoryPanel,
+body.low-data #oddsJournalPanel,
+body.low-data #performancePanel,
+body.low-data #watchlistPanel,
+body.low-data #ladderPanel,
+body.low-data #multiResult {
+  display: none;
 }
 
 .ticket-status {
