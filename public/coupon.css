@@ -89,6 +89,23 @@ h1 {
   margin-bottom: 0.75rem;
 }
 
+.primary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.secondary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.panel-main {
+  min-height: 300px;
+}
+
 .controls label { display: grid; gap: 0.24rem; }
 
 .switch-line {
@@ -117,7 +134,7 @@ h1 {
 
 .actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 0.55rem;
   align-items: end;
 }
@@ -150,6 +167,11 @@ h1 {
   cursor: pointer;
   position: relative;
   overflow: hidden;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 #generateBtn {
@@ -561,7 +583,7 @@ li a {
       calc(5.1rem + env(safe-area-inset-bottom));
   }
   .hero, .controls, .panel { padding: 0.8rem; border-radius: 12px; }
-  .controls, .actions { grid-template-columns: 1fr; }
+  .controls, .actions, .primary-grid, .secondary-grid { grid-template-columns: 1fr; }
   #generateBtn, #generateMultiBtn, #validateBtn, #sendTelegramBtn, #sendPackBtn, #downloadPdfBtn, #downloadStoryBtn { width: 100%; }
 }
 
