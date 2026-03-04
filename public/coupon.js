@@ -17,6 +17,7 @@ const AUTO_COUPON_STORAGE_KEY = "fc25_auto_coupon_v1";
 const PAGE_REFRESH_COUPON_STORAGE_KEY = "fc25_coupon_refresh_minutes_v1";
 const PERFORMANCE_LOG_KEY = "fc25_performance_log_v1";
 const ANTI_CORRELATION_KEY = "fc25_anti_correlation_v1";
+const ANTI_CHAOS_KEY = "fc25_anti_chaos_v1";
 const FREEZE_MINUTES_KEY = "fc25_freeze_minutes_v1";
 const BANKROLL_PROFILE_KEY = "fc25_bankroll_profile_v1";
 const LIVE_SIMULATION_KEY = "fc25_live_simulation_v1";
@@ -808,6 +809,16 @@ function isAntiCorrelationEnabled() {
 
 function setAntiCorrelationEnabled(value) {
   localStorage.setItem(ANTI_CORRELATION_KEY, value ? "1" : "0");
+}
+
+function isAntiChaosEnabled() {
+  const v = localStorage.getItem(ANTI_CHAOS_KEY);
+  if (v == null) return true;
+  return v === "1";
+}
+
+function setAntiChaosEnabled(value) {
+  localStorage.setItem(ANTI_CHAOS_KEY, value ? "1" : "0");
 }
 
 function getBankrollProfile() {
@@ -1682,6 +1693,102 @@ function computeMatchStability(pick, details) {
     driftPct: Number(driftPct.toFixed(2)),
     marketCount: markets.length,
     minutesToStart,
+  };
+}
+
+function correlationPenaltyForPick(pick, allPicks = []) {
+  const league = String(pick?.league || "");
+  if (!league) return 0;
+  const sameLeague = allPicks.filter((x) => String(x?.league || "") === league).length;
+  // 1 pick = 0, 2 picks = 10, 3+ picks = 20
+  if (sameLeague >= 3) return 20;
+  if (sameLeague === 2) return 10;
+  return 0;
+}
+
+function computeChaosScore({ pick, stabilityData, allPicks = [] }) {
+  const drift = Number(stabilityData?.driftPct || 0);
+  const stability = Number(stabilityData?.stability || 55);
+  const confidence = Number(pick?.confiance || 50);
+  const corrPenalty = correlationPenaltyForPick(pick, allPicks);
+
+  const driftRisk = clamp(Math.round(drift * 8), 0, 45);
+  const stabilityRisk = clamp(Math.round((100 - stability) * 0.45), 0, 35);
+  const confidenceRisk = confidence < 60 ? clamp(Math.round((60 - confidence) * 1.3), 0, 25) : 0;
+  return clamp(driftRisk + stabilityRisk + confidenceRisk + corrPenalty, 0, 100);
+}
+
+async function applyAntiChaosFilter(coupon = [], { league = "all", risk = "balanced", targetSize = 3 } = {}) {
+  if (!isAntiChaosEnabled() || !Array.isArray(coupon) || !coupon.length) {
+    return { coupon: Array.isArray(coupon) ? coupon : [], removed: 0, note: "" };
+  }
+
+  const scored = [];
+  for (const pick of coupon) {
+    const id = String(pick?.matchId || "");
+    if (!id) continue;
+    try {
+      let st = stabilityCache.get(id);
+      if (!st) {
+        const res = await fetch(`/api/matches/${encodeURIComponent(id)}/details`, { cache: "no-store" });
+        const details = await readJsonSafe(res);
+        if (!res.ok || !details?.success) throw new Error("details indisponibles");
+        st = computeMatchStability(pick, details);
+        stabilityCache.set(id, st);
+      }
+      const chaos = computeChaosScore({ pick, stabilityData: st, allPicks: coupon });
+      scored.push({ pick: { ...pick, stabilityScore: st.stability }, chaos });
+    } catch {
+      // If details fail, apply medium risk instead of dropping blindly.
+      scored.push({ pick, chaos: 56 });
+    }
+  }
+
+  // Keep low-chaos picks first.
+  const keep = scored
+    .sort((a, b) => a.chaos - b.chaos || Number(b.pick?.confiance || 0) - Number(a.pick?.confiance || 0))
+    .filter((x) => x.chaos <= 55)
+    .map((x) => x.pick);
+
+  let out = keep.slice(0, Math.max(1, targetSize));
+  const removed = Math.max(0, coupon.length - out.length);
+
+  // Refill with extra picks if needed.
+  if (out.length < Math.max(1, targetSize)) {
+    try {
+      const need = Math.max(1, targetSize) - out.length;
+      const res = await fetch(
+        `/api/coupon?size=${Math.max(need + 4, targetSize + 2)}&league=${encodeURIComponent(league)}&risk=${encodeURIComponent(risk === "ultra_safe" ? "safe" : risk)}`,
+        { cache: "no-store" }
+      );
+      const data = await readJsonSafe(res);
+      const extra = Array.isArray(data?.coupon) ? data.coupon : [];
+      const existing = new Set(out.map((x) => String(x.matchId)));
+      const candidates = extra.filter((x) => !existing.has(String(x.matchId)));
+      for (const pick of candidates) {
+        if (out.length >= targetSize) break;
+        const id = String(pick?.matchId || "");
+        if (!id) continue;
+        try {
+          let st = stabilityCache.get(id);
+          if (!st) {
+            const dRes = await fetch(`/api/matches/${encodeURIComponent(id)}/details`, { cache: "no-store" });
+            const dData = await readJsonSafe(dRes);
+            if (!dRes.ok || !dData?.success) continue;
+            st = computeMatchStability(pick, dData);
+            stabilityCache.set(id, st);
+          }
+          const chaos = computeChaosScore({ pick, stabilityData: st, allPicks: out });
+          if (chaos <= 55) out.push({ ...pick, stabilityScore: st.stability });
+        } catch {}
+      }
+    } catch {}
+  }
+
+  return {
+    coupon: out.slice(0, Math.max(1, targetSize)),
+    removed,
+    note: removed > 0 ? `Filtre anti-chaos: ${removed} pick(s) exclus (drift/stabilite/correlation).` : "",
   };
 }
 
@@ -2586,15 +2693,23 @@ async function generateCoupon() {
         baseCoupon = enforceUltraSafePolicy(baseCoupon);
       }
       const anti = applyAntiCorrelation(baseCoupon, requestedSize);
+      const antiChaos = await applyAntiChaosFilter(anti.coupon, {
+        league,
+        risk,
+        targetSize: requestedSize,
+      });
       data = {
         ...data,
         riskProfile: risk,
-        coupon: anti.coupon,
-        summary: createCouponSummary(anti.coupon),
+        coupon: antiChaos.coupon,
+        summary: createCouponSummary(antiChaos.coupon),
         warning: anti.removed > 0
           ? `Anti-correlation actif: ${anti.removed} pick(s) retire(s), max ${anti.maxPerLeague} par ligue. ${data?.warning || ""}`
           : data?.warning,
       };
+      if (antiChaos.note) {
+        data.warning = `${antiChaos.note} ${data.warning || ""}`;
+      }
       if (risk === "ultra_safe") {
         data.warning = `Mode Ultra-Safe: max 3 matchs, cote 1.30-1.95, confiance >=72%, pre-match uniquement. ${data.warning || ""}`;
       }
@@ -3167,6 +3282,17 @@ async function initCouponPage() {
     });
   }
 
+  const antiChaosSwitch = document.getElementById("antiChaosSwitch");
+  if (antiChaosSwitch) {
+    antiChaosSwitch.checked = isAntiChaosEnabled();
+    antiChaosSwitch.addEventListener("change", () => {
+      setAntiChaosEnabled(antiChaosSwitch.checked);
+      if (lastCouponData?.coupon?.length) {
+        generateCoupon();
+      }
+    });
+  }
+
   const freezeInput = document.getElementById("freezeMinutesInput");
   if (freezeInput) {
     freezeInput.value = String(getFreezeMinutes());
@@ -3282,6 +3408,7 @@ function registerCouponSiteControl() {
       "set_auto_coupon_telegram",
       "set_refresh_minutes",
       "set_anti_correlation",
+      "set_anti_chaos",
       "set_freeze_minutes",
       "set_bankroll_profile",
       "set_live_simulation",
@@ -3352,6 +3479,13 @@ function registerCouponSiteControl() {
         const enabled = payload?.enabled !== false;
         setAntiCorrelationEnabled(enabled);
         const sw = document.getElementById("antiCorrelationSwitch");
+        if (sw) sw.checked = enabled;
+        return true;
+      }
+      if (action === "set_anti_chaos") {
+        const enabled = payload?.enabled !== false;
+        setAntiChaosEnabled(enabled);
+        const sw = document.getElementById("antiChaosSwitch");
         if (sw) sw.checked = enabled;
         return true;
       }

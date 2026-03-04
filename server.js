@@ -414,6 +414,11 @@ function deriveControlActions(message, context = {}) {
     } else if (text.includes("auto heal off")) {
       actions.push({ type: "site_control", name: "set_auto_heal", payload: { enabled: false } });
     }
+    if (text.includes("anti chaos on")) {
+      actions.push({ type: "site_control", name: "set_anti_chaos", payload: { enabled: true } });
+    } else if (text.includes("anti chaos off")) {
+      actions.push({ type: "site_control", name: "set_anti_chaos", payload: { enabled: false } });
+    }
     if (text.includes("low data on")) {
       actions.push({ type: "site_control", name: "set_low_data_mode", payload: { enabled: true } });
     } else if (text.includes("low data off")) {
