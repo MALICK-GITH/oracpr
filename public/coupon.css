@@ -602,6 +602,45 @@ li a {
   color: #d2e7ff;
 }
 
+.mini-report {
+  margin-top: 0.65rem;
+  border: 1px solid rgba(255, 210, 122, 0.35);
+  border-radius: 10px;
+  background: rgba(255, 210, 122, 0.08);
+  padding: 0.55rem 0.62rem;
+}
+
+.mini-report h4 {
+  margin: 0 0 0.35rem;
+  color: #ffe8b8;
+  font-size: 0.9rem;
+}
+
+.mini-report ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.mini-report li {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: 0.8rem;
+  color: #f9f2de;
+}
+
+.top-replacements {
+  margin-top: 0.35rem;
+  border: 1px solid rgba(124, 214, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(124, 214, 255, 0.09);
+  padding: 0.4rem 0.45rem;
+  font-size: 0.78rem;
+  color: #d7edff;
+}
+
 body.low-data .secondary-grid {
   grid-template-columns: 1fr;
 }

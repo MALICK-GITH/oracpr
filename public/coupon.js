@@ -29,6 +29,7 @@ const AUTO_COUPON_QUALITY_KEY = "fc25_auto_coupon_quality_v1";
 const AUTO_COUPON_TG_KEY = "fc25_auto_coupon_tg_v1";
 const LOW_DATA_MODE_KEY = "fc25_low_data_mode_v1";
 const AUTO_HEAL_KEY = "fc25_auto_heal_v1";
+const PRE_SEND_LOCK_KEY = "fc25_pre_send_lock_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 let pageRefreshCouponIntervalId = null;
 let liveSimulationIntervalId = null;
@@ -41,6 +42,7 @@ let couponCountdownIntervalId = null;
 const stabilityCache = new Map();
 let ticketSnapshotA = null;
 let ticketSnapshotB = null;
+let lastAntiChaosReport = null;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -167,6 +169,16 @@ function isAutoHealEnabled() {
 
 function setAutoHealEnabled(value) {
   localStorage.setItem(AUTO_HEAL_KEY, value ? "1" : "0");
+}
+
+function isPreSendLockEnabled() {
+  const v = localStorage.getItem(PRE_SEND_LOCK_KEY);
+  if (v == null) return true;
+  return v === "1";
+}
+
+function setPreSendLockEnabled(value) {
+  localStorage.setItem(PRE_SEND_LOCK_KEY, value ? "1" : "0");
 }
 
 function readAlertCenter() {
@@ -951,6 +963,24 @@ async function sendLadderToTelegram() {
     if (liveInLadder) {
       throw new Error("Kill switch live: ladder contient un match deja demarre.");
     }
+    if (isPreSendLockEnabled()) {
+      for (const it of lastLadderData.items || []) {
+        const picks = Array.isArray(it?.coupon) ? it.coupon : [];
+        if (!picks.length) continue;
+        const payload = {
+          driftThresholdPercent: getDriftThreshold(),
+          selections: picks.map((x) => ({
+            matchId: x.matchId,
+            pari: x.pari,
+            cote: x.cote,
+          })),
+        };
+        const report = await fetchValidationReport(payload);
+        if (String(report?.status || "") !== "TICKET_OK") {
+          throw new Error(`Verrouillage pre-envoi: ladder ${it?.label || it?.profile || "-"} non valide.`);
+        }
+      }
+    }
     const res = await fetch("/api/coupon/ladder/send-telegram", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1600,10 +1630,18 @@ async function sendCouponPackToTelegram() {
     await preflightTelegramSafety();
     await maybeStartAlertAndReplace();
     const adapted = await enforceTicketShield("envoi groupe Telegram");
+    const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+    const telegramConfidenceScore = computeTelegramConfidenceScore(
+      lastCouponData.coupon,
+      lastCouponData.summary || {},
+      insights
+    );
     const payload = {
       coupon: lastCouponData.coupon,
       summary: lastCouponData.summary || {},
       riskProfile: lastCouponData.riskProfile || "balanced",
+      insights,
+      telegramConfidenceScore,
       imageFormat: "png",
       ticketShield: {
         driftThresholdPercent: getDriftThreshold(),
@@ -1715,7 +1753,13 @@ function computeChaosScore({ pick, stabilityData, allPicks = [] }) {
   const driftRisk = clamp(Math.round(drift * 8), 0, 45);
   const stabilityRisk = clamp(Math.round((100 - stability) * 0.45), 0, 35);
   const confidenceRisk = confidence < 60 ? clamp(Math.round((60 - confidence) * 1.3), 0, 25) : 0;
-  return clamp(driftRisk + stabilityRisk + confidenceRisk + corrPenalty, 0, 100);
+  const chaos = clamp(driftRisk + stabilityRisk + confidenceRisk + corrPenalty, 0, 100);
+  const reasons = [];
+  if (driftRisk >= 18) reasons.push(`Drift eleve (${drift.toFixed(2)}%)`);
+  if (stabilityRisk >= 16) reasons.push(`Stabilite faible (${stability}/100)`);
+  if (corrPenalty >= 10) reasons.push("Correlation ligue forte");
+  if (confidenceRisk >= 8) reasons.push(`Confiance faible (${confidence.toFixed(1)}%)`);
+  return { chaos, reasons, driftRisk, stabilityRisk, confidenceRisk, corrPenalty };
 }
 
 async function applyAntiChaosFilter(coupon = [], { league = "all", risk = "balanced", targetSize = 3 } = {}) {
@@ -1736,19 +1780,28 @@ async function applyAntiChaosFilter(coupon = [], { league = "all", risk = "balan
         st = computeMatchStability(pick, details);
         stabilityCache.set(id, st);
       }
-      const chaos = computeChaosScore({ pick, stabilityData: st, allPicks: coupon });
-      scored.push({ pick: { ...pick, stabilityScore: st.stability }, chaos });
+      const diag = computeChaosScore({ pick, stabilityData: st, allPicks: coupon });
+      scored.push({ pick: { ...pick, stabilityScore: st.stability }, chaos: diag.chaos, reasons: diag.reasons, diag });
     } catch {
       // If details fail, apply medium risk instead of dropping blindly.
-      scored.push({ pick, chaos: 56 });
+      scored.push({ pick, chaos: 56, reasons: ["Donnees details indisponibles"] });
     }
   }
 
   // Keep low-chaos picks first.
-  const keep = scored
+  const keepRows = scored
     .sort((a, b) => a.chaos - b.chaos || Number(b.pick?.confiance || 0) - Number(a.pick?.confiance || 0))
-    .filter((x) => x.chaos <= 55)
-    .map((x) => x.pick);
+    .filter((x) => x.chaos <= 55);
+  const keep = keepRows.map((x) => x.pick);
+  const excluded = scored
+    .filter((x) => x.chaos > 55)
+    .sort((a, b) => b.chaos - a.chaos)
+    .map((x) => ({
+      matchId: x.pick?.matchId,
+      teams: `${x.pick?.teamHome || "?"} vs ${x.pick?.teamAway || "?"}`,
+      chaos: x.chaos,
+      reasons: Array.isArray(x.reasons) ? x.reasons : [],
+    }));
 
   let out = keep.slice(0, Math.max(1, targetSize));
   const removed = Math.max(0, coupon.length - out.length);
@@ -1785,10 +1838,17 @@ async function applyAntiChaosFilter(coupon = [], { league = "all", risk = "balan
     } catch {}
   }
 
+  const report = {
+    removed,
+    kept: out.length,
+    excluded: excluded.slice(0, 8),
+  };
+  lastAntiChaosReport = report;
   return {
     coupon: out.slice(0, Math.max(1, targetSize)),
     removed,
     note: removed > 0 ? `Filtre anti-chaos: ${removed} pick(s) exclus (drift/stabilite/correlation).` : "",
+    report,
   };
 }
 
@@ -1884,7 +1944,35 @@ async function preflightTelegramSafety() {
 
   const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
   const minStart = Number(insights?.minStartMinutes);
-  // Double-check automatique au plus pres de T-120s.
+  const preSendLock = isPreSendLockEnabled();
+
+  // Verrouillage pre-envoi: scan complet obligatoire avant Telegram.
+  if (preSendLock) {
+    const payload = {
+      driftThresholdPercent: getDriftThreshold(),
+      selections: lastCouponData.coupon.map((x) => ({
+        matchId: x.matchId,
+        pari: x.pari,
+        cote: x.cote,
+      })),
+    };
+    const report = await fetchValidationReport(payload);
+    renderValidation(report);
+    if (String(report?.status || "") !== "TICKET_OK") {
+      throw new Error("Verrouillage pre-envoi: ticket non valide apres rescan, envoi Telegram bloque.");
+    }
+    if (Number.isFinite(minStart) && minStart <= 1) {
+      pushAlert({
+        severity: "medium",
+        title: "Verrouillage T-60 valide",
+        detail: "Dernier rescan complet T-60 reussi avant Telegram.",
+        type: "presend_lock_ok",
+      });
+    }
+    return;
+  }
+
+  // Fallback legacy: double-check seulement pres de T-120.
   if (Number.isFinite(minStart) && minStart <= 2) {
     const payload = {
       driftThresholdPercent: getDriftThreshold(),
@@ -1895,8 +1983,8 @@ async function preflightTelegramSafety() {
       })),
     };
     const report = await fetchValidationReport(payload);
+    renderValidation(report);
     if (String(report?.status || "") !== "TICKET_OK") {
-      renderValidation(report);
       throw new Error("Double-check T-120s: ticket non valide, envoi Telegram bloque.");
     }
   }
@@ -1984,6 +2072,21 @@ function renderCoupon(data) {
   const pay = payoutFromStake(stake, data.summary?.combinedOdd);
   const couponEv = computeCouponEV(picks);
 
+  const antiChaosHtml =
+    data?.antiChaosReport?.removed > 0
+      ? `<div class="mini-report">
+          <h4>Pourquoi exclu ? (anti-chaos)</h4>
+          <ul>
+            ${(data.antiChaosReport.excluded || [])
+              .map(
+                (x) =>
+                  `<li><strong>${x.teams}</strong> - Chaos ${x.chaos}/100 - ${(x.reasons || []).join(", ") || "Risque eleve"}</li>`
+              )
+              .join("")}
+          </ul>
+        </div>`
+      : "";
+
   setResultHtml(`
     <h3>Coupon Optimise</h3>
     <div class="meta">
@@ -2007,6 +2110,7 @@ function renderCoupon(data) {
         : ""
     }
     <p class="warning">${data.warning || ""}</p>
+    ${antiChaosHtml}
   `);
   renderHealthPanel(picks, data.riskProfile || "balanced", data.summary || {});
   startCouponCountdownTimer();
@@ -2299,6 +2403,13 @@ function computeCouponEV(coupon = []) {
   return Number((coupon.reduce((acc, p) => acc + computePickEV(p), 0)).toFixed(3));
 }
 
+function computeTelegramConfidenceScore(coupon = [], summary = {}, insights = {}) {
+  const avgConf = Number(summary?.averageConfidence || 0);
+  const reliability = Number(insights?.reliabilityIndex || 0);
+  const antiCorr = 100 - Number(insights?.correlationRisk || 0);
+  return clamp(Math.round(avgConf * 0.45 + reliability * 0.4 + antiCorr * 0.15), 1, 100);
+}
+
 function isCouponFrozen(coupon = [], freezeMinutes = getFreezeMinutes()) {
   if (!Array.isArray(coupon) || !coupon.length) return false;
   const insights = computeCouponInsights(coupon, lastCouponData?.riskProfile || "balanced");
@@ -2346,6 +2457,61 @@ function applyAdaptiveParlay(report) {
   return { coupon: next, replaced, blocked };
 }
 
+function makeSafeDomId(value) {
+  return String(value || "")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 80);
+}
+
+async function fetchTopReplacementsForRow(row) {
+  const matchId = String(row?.matchId || "");
+  if (!matchId) return [];
+  try {
+    const res = await fetch(`/api/matches/${encodeURIComponent(matchId)}/details`, { cache: "no-store" });
+    const data = await readJsonSafe(res);
+    if (!res.ok || !data?.success) return [];
+    const markets = Array.isArray(data?.bettingMarkets) ? data.bettingMarkets : [];
+    const selectedPari = String(row?.selected?.pari || "");
+    const baseOdd = Number(row?.selected?.odd || row?.current?.odd || 0);
+    return markets
+      .filter((m) => String(m?.nom || "") !== selectedPari)
+      .map((m) => {
+        const odd = Number(m?.cote || 0);
+        const oddPenalty = baseOdd > 0 && odd > 0 ? Math.abs(odd - baseOdd) : 0.6;
+        const confidenceGuess = clamp(Math.round(76 - oddPenalty * 22), 45, 90);
+        const score = confidenceGuess - oddPenalty * 15;
+        return {
+          pari: String(m?.nom || "-"),
+          odd,
+          confidence: confidenceGuess,
+          score,
+        };
+      })
+      .filter((x) => x.odd > 1.12)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
+async function hydrateTopReplacements(report) {
+  const rows = Array.isArray(report?.validatedSelections) ? report.validatedSelections.filter((x) => x.status !== "ok") : [];
+  for (const row of rows) {
+    const hostId = `top-replacements-${makeSafeDomId(row.matchId)}`;
+    const host = document.getElementById(hostId);
+    if (!host) continue;
+    const alts = await fetchTopReplacementsForRow(row);
+    if (!alts.length) {
+      host.textContent = "Top remplacants: aucun marche alternatif fiable trouve.";
+      continue;
+    }
+    host.innerHTML = `Top remplacants: ${alts
+      .map((x, i) => `${i + 1}) ${x.pari} @${formatOdd(x.odd)} (${x.confidence}%)`)
+      .join(" | ")}`;
+  }
+}
+
 function renderValidation(report) {
   let panel = document.getElementById("validation");
   if (!panel) {
@@ -2364,11 +2530,13 @@ function renderValidation(report) {
         ? `Suggestion: ${s.recommendation.pari} | cote ${formatOdd(s.recommendation.odd)} | conf ${s.recommendation.confidence}%`
         : "Aucune suggestion disponible";
       const drift = s.driftPercent != null ? `${s.driftPercent}%` : "-";
+      const altHost = s.status !== "ok" ? `<div class="top-replacements" id="top-replacements-${makeSafeDomId(s.matchId)}">Top remplacants: chargement...</div>` : "";
       return `
         <li>
           <strong>${s.teams || s.matchId}</strong><br />
           Etat: ${s.status.toUpperCase()} | Confiance: ${s.confidence}% | Drift: ${drift}<br />
           ${rec}
+          ${altHost}
         </li>
       `;
     })
@@ -2416,6 +2584,7 @@ function renderValidation(report) {
     at: new Date().toISOString(),
     note: `${statusLabel} | total ${report.summary?.total ?? 0} | a corriger ${report.summary?.toFix ?? 0}`,
   });
+  hydrateTopReplacements(report);
 }
 
 async function sendCouponToTelegram(sendImage = false, mini = false) {
@@ -2433,11 +2602,19 @@ async function sendCouponToTelegram(sendImage = false, mini = false) {
     await preflightTelegramSafety();
     await maybeStartAlertAndReplace();
     const adapted = await enforceTicketShield("envoi Telegram");
+    const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+    const telegramConfidenceScore = computeTelegramConfidenceScore(
+      lastCouponData.coupon,
+      lastCouponData.summary || {},
+      insights
+    );
 
     const payload = {
       coupon: lastCouponData.coupon,
       summary: lastCouponData.summary || {},
       riskProfile: lastCouponData.riskProfile || "balanced",
+      insights,
+      telegramConfidenceScore,
       sendImage,
       mini: Boolean(mini && !sendImage),
       imageFormat: sendImage ? "png" : "png",
@@ -2703,6 +2880,7 @@ async function generateCoupon() {
         riskProfile: risk,
         coupon: antiChaos.coupon,
         summary: createCouponSummary(antiChaos.coupon),
+        antiChaosReport: antiChaos.report || null,
         warning: anti.removed > 0
           ? `Anti-correlation actif: ${anti.removed} pick(s) retire(s), max ${anti.maxPerLeague} par ligue. ${data?.warning || ""}`
           : data?.warning,
@@ -3331,6 +3509,14 @@ async function initCouponPage() {
     });
   }
 
+  const preSendLockSwitch = document.getElementById("preSendLockSwitch");
+  if (preSendLockSwitch) {
+    preSendLockSwitch.checked = isPreSendLockEnabled();
+    preSendLockSwitch.addEventListener("change", () => {
+      setPreSendLockEnabled(preSendLockSwitch.checked);
+    });
+  }
+
   await loadLeagues();
   renderHistory();
   renderAlertsPanel();
@@ -3414,6 +3600,7 @@ function registerCouponSiteControl() {
       "set_live_simulation",
       "set_auto_heal",
       "set_low_data_mode",
+      "set_pre_send_lock",
       "build_watchlist",
     ],
     async execute(name, payload = {}) {
@@ -3524,6 +3711,13 @@ function registerCouponSiteControl() {
         const sw = document.getElementById("lowDataSwitch");
         if (sw) sw.checked = enabled;
         restartLiveMonitors();
+        return true;
+      }
+      if (action === "set_pre_send_lock") {
+        const enabled = payload?.enabled !== false;
+        setPreSendLockEnabled(enabled);
+        const sw = document.getElementById("preSendLockSwitch");
+        if (sw) sw.checked = enabled;
         return true;
       }
       if (action === "set_coupon_form") {

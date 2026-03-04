@@ -419,6 +419,11 @@ function deriveControlActions(message, context = {}) {
     } else if (text.includes("anti chaos off")) {
       actions.push({ type: "site_control", name: "set_anti_chaos", payload: { enabled: false } });
     }
+    if (text.includes("lock pre send on") || text.includes("verrouillage pre envoi on")) {
+      actions.push({ type: "site_control", name: "set_pre_send_lock", payload: { enabled: true } });
+    } else if (text.includes("lock pre send off") || text.includes("verrouillage pre envoi off")) {
+      actions.push({ type: "site_control", name: "set_pre_send_lock", payload: { enabled: false } });
+    }
     if (text.includes("low data on")) {
       actions.push({ type: "site_control", name: "set_low_data_mode", payload: { enabled: true } });
     } else if (text.includes("low data off")) {
@@ -570,17 +575,31 @@ function formatMatchStartTimeUnix(unixSeconds) {
 function buildTelegramCouponText(payload = {}) {
   const coupon = Array.isArray(payload.coupon) ? payload.coupon : [];
   const summary = payload.summary || {};
+  const insights = payload.insights || {};
   const riskProfile = String(payload.riskProfile || "balanced");
+  const telegramConfidenceScore = Math.max(
+    1,
+    Math.min(
+      100,
+      Math.round(
+        Number(payload?.telegramConfidenceScore) ||
+          Number(summary?.averageConfidence || 0) * 0.45 +
+            Number(insights?.reliabilityIndex || 60) * 0.4 +
+            (100 - Number(insights?.correlationRisk || 50)) * 0.15
+      )
+    )
+  );
   if (payload?.mini) {
     const top = coupon.slice(0, 3);
     const lines = [
       `FC25 MINI | ${riskProfile.toUpperCase()}`,
       `Sel: ${Number(summary.totalSelections) || coupon.length} | Cote: ${formatOddForTelegram(summary.combinedOdd)}`,
       `Conf: ${Number(summary.averageConfidence) || 0}%`,
+      `Score Telegram: ${telegramConfidenceScore}/100`,
       ...top.map((p, i) => `${i + 1}) ${p?.teamHome || "E1"} vs ${p?.teamAway || "E2"} | ${formatOddForTelegram(p?.cote)}`),
       "Signe: SOLITAIRE HACK",
     ];
-    return lines.slice(0, 6).join("\n");
+    return lines.slice(0, 7).join("\n");
   }
   const lines = [
     "COUPON OPTIMISE SOLITFIFPRO225",
@@ -589,6 +608,7 @@ function buildTelegramCouponText(payload = {}) {
     `Selections: ${Number(summary.totalSelections) || coupon.length}`,
     `Cote combinee: ${formatOddForTelegram(summary.combinedOdd)}`,
     `Confiance moyenne: ${Number(summary.averageConfidence) || 0}%`,
+    `Score confiance Telegram: ${telegramConfidenceScore}/100`,
     "",
   ];
 
