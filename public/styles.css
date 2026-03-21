@@ -414,6 +414,21 @@ footer {
   color: rgba(219, 232, 255, 0.75);
 }
 
+.coupon-panel {
+  border: 1px solid rgba(93, 170, 255, 0.35);
+  background: linear-gradient(150deg, rgba(12, 20, 40, 0.96), rgba(8, 14, 26, 0.98));
+}
+
+.coupon-panel.compact .coupon-actions {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+@media (max-width: 900px) {
+  .coupon-panel.compact .coupon-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
 .odd-alert-card {
   border: 1px solid rgba(255, 209, 102, 0.55);
   border-radius: 10px;
