@@ -1349,6 +1349,81 @@ footer {
   color: #7cdbff;
 }
 
+/* Enhanced mobile touch targets and interactions */
+.match-card {
+  min-height: 48px;
+  touch-action: manipulation;
+}
+
+.odd-box {
+  min-height: 44px;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+#refreshBtn,
+.coupon-page-link {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+}
+
+/* Improved mobile typography */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+  
+  .hero h1 {
+    font-size: clamp(1.2rem, 5vw, 1.8rem);
+  }
+  
+  .team-name {
+    font-size: clamp(0.75rem, 3vw, 0.9rem);
+  }
+  
+  .odd-box strong {
+    font-size: clamp(1rem, 4vw, 1.3rem);
+  }
+}
+
+/* Mobile-first grid improvements */
+@media (max-width: 640px) {
+  .stats {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  
+  .heatmap-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .finder-row {
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem;
+  }
+  
+  .finder-pill,
+  .finder-link {
+    display: none;
+  }
+}
+
+/* Smooth mobile scrolling */
+@media (max-width: 768px) {
+  * {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+  }
+  
+  .matches {
+    scroll-snap-type: y mandatory;
+  }
+  
+  .match-card {
+    scroll-snap-align: start;
+  }
+}
 @media (max-width: 820px) {
   body {
     padding: calc(0.68rem + env(safe-area-inset-top)) 0.68rem calc(0.68rem + env(safe-area-inset-bottom));
@@ -1383,8 +1458,20 @@ footer {
   .odd-box strong {
     font-size: 1.28rem;
   }
+
+  /* Android optimizations */
+  @media screen and (-webkit-min-device-pixel-ratio: 0) {
+    .team-logo {
+      border: 1.5px solid rgba(255, 255, 255, 0.14);
+    }
+    
+    .match-card {
+      border-radius: 16px;
+    }
+  }
 }
 
+/* Enhanced mobile experience */
 @media (max-width: 560px) {
   .hero h1,
   .hero .tag,
@@ -1433,6 +1520,37 @@ footer {
     font-size: 0.68rem;
     padding: 0.18rem 0.45rem;
   }
+
+  /* iOS specific optimizations */
+  @supports (-webkit-touch-callout: none) {
+    .match-card {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    
+    .odd-box {
+      -webkit-tap-highlight-color: rgba(66, 245, 108, 0.2);
+    }
+    
+    #refreshBtn,
+    .coupon-page-link {
+      -webkit-tap-highlight-color: rgba(66, 245, 108, 0.3);
+    }
+  }
+
+  /* Android specific optimizations */
+  @media screen and (-webkit-min-device-pixel-ratio: 0) {
+    .controls {
+      gap: 0.5rem;
+    }
+    
+    #refreshBtn,
+    .coupon-page-link {
+      min-height: 44px;
+      padding: 0.65rem 0.8rem;
+    }
+  }
 }
 
 @keyframes rise {
@@ -1474,5 +1592,83 @@ footer {
     right: 7px;
     width: auto;
     top: 8px;
+  }
+}
+
+/* Ultra-mobile optimization */
+@media (max-width: 380px) {
+  .hero h1 {
+    font-size: 1.4rem;
+  }
+  
+  .controls {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+  
+  #refreshBtn,
+  .coupon-page-link {
+    padding: 0.7rem 0.9rem;
+    font-size: 0.85rem;
+  }
+  
+  .match-modes {
+    justify-content: center;
+  }
+  
+  .match-mode {
+    font-size: 0.75rem;
+    padding: 0.35rem 0.7rem;
+  }
+  
+  .team-name {
+    font-size: 0.8rem;
+    line-height: 1.2;
+  }
+  
+  .odd-box {
+    padding: 0.5rem 0.3rem;
+  }
+  
+  .odd-box strong {
+    font-size: 1.05rem;
+  }
+}
+
+/* Large mobile and small tablets */
+@media (min-width: 561px) and (max-width: 768px) {
+  .controls {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .match-modes {
+    justify-content: center;
+  }
+  
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* High DPI displays optimization */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .team-logo-img {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+  
+  .odd-box strong {
+    font-weight: 800;
+  }
+}
+
+/* Dark mode enhancement for mobile */
+@media (prefers-color-scheme: dark) {
+  .match-card {
+    background: linear-gradient(160deg, rgba(10, 18, 36, 0.96), rgba(6, 12, 24, 0.98));
+  }
+  
+  .odd-box {
+    background: linear-gradient(170deg, rgba(12, 22, 44, 0.98), rgba(8, 16, 32, 0.96));
   }
 }
