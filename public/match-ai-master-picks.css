@@ -767,11 +767,33 @@
   font-family: 'Chakra Petch', sans-serif;
 }
 
-.metric-label {
-  color: rgba(159, 181, 214, 0.9);
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+.reasoning-block.chat-insights {
+  background: linear-gradient(145deg, rgba(59, 231, 255, 0.1), rgba(66, 245, 108, 0.05));
+  border: 1px solid rgba(59, 231, 255, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.reasoning-block.chat-insights::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #3be7ff, #42f56c);
+  animation: gradientFlow 3s ease-in-out infinite;
+}
+
+.reasoning-block.chat-insights h5 {
+  color: #3be7ff;
+  text-shadow: 0 0 10px rgba(59, 231, 255, 0.5);
+}
+
+.reasoning-block.chat-insights p {
+  color: rgba(226, 244, 255, 0.95);
+  font-style: italic;
+  line-height: 1.7;
 }
 
 .ai-real-time-section {

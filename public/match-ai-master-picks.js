@@ -177,16 +177,49 @@ class AIMasterPicks {
 
       this.currentMatchId = matchId;
       
-      // Call the REAL API endpoint
-      const response = await fetch(`/api/matches/${matchId}/details`);
-      const data = await response.json();
+      // Call the REAL API endpoint for match details
+      const detailsResponse = await fetch(`/api/matches/${matchId}/details`);
+      const detailsData = await detailsResponse.json();
       
-      if (!data.success) {
-        throw new Error(data.message || 'Erreur API');
+      if (!detailsData.success) {
+        throw new Error(detailsData.message || 'Erreur API détails');
       }
 
-      this.matchData = data;
-      this.aiPicks = this.processRealAIData(data);
+      this.matchData = detailsData;
+      this.aiPicks = this.processRealAIData(detailsData);
+      
+      // Also get AI chat analysis for deeper insights
+      try {
+        const chatResponse = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: `Analyse ce match en détail et donne-moi tes recommandations de paris personnelles basées sur l'API unifiée. Match ID: ${matchId}`,
+            context: {
+              page: 'match-details',
+              matchId: matchId,
+              capabilities: {
+                actions: [
+                  'analyze-match',
+                  'get-predictions',
+                  'check-confidence',
+                  'evaluate-odds',
+                  'master-decision'
+                ]
+              }
+            }
+          })
+        });
+
+        const chatData = await chatResponse.json();
+        if (chatData.success && chatData.answer) {
+          this.aiPicks.chatInsights = chatData.answer;
+        }
+      } catch (chatError) {
+        console.warn('Chat API error, using fallback:', chatError);
+      }
       
       this.displayAIPicks();
       this.updateMetrics();
@@ -410,6 +443,13 @@ class AIMasterPicks {
   }
 
   createReasoningContent(aiPicks) {
+    const chatInsights = aiPicks.chatInsights ? `
+      <div class="reasoning-block chat-insights">
+        <h5>🤖 Analyse IA Avancée</h5>
+        <p>${aiPicks.chatInsights}</p>
+      </div>
+    ` : '';
+
     return `
       <div class="reasoning-blocks">
         <div class="reasoning-block">
@@ -433,6 +473,7 @@ class AIMasterPicks {
           <h5>⚡ Recommandation Finale</h5>
           <p><strong>${aiPicks.masterPick.action.toUpperCase()}</strong> - Le pari "${aiPicks.masterPick.name}" présente le meilleur ratio risque/récompense selon nos algorithmes.</p>
         </div>
+        ${chatInsights}
       </div>
     `;
   }
@@ -567,8 +608,41 @@ class AIMasterPicks {
 
   analyzeDeeper(pariName) {
     console.log(`Deep analysis for: ${pariName}`);
-    // Implement deeper analysis
-    this.showNotification(`🔬 Analyse approfondie lancée pour: ${pariName}`);
+    
+    // Use the real chat API for deeper analysis
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: `Fais une analyse approfondie du pari "${pariName}" pour ce match. Donne-moi les détails statistiques, les risques, et tes recommandations personnelles basées sur l'API unifiée.`,
+        context: {
+          page: 'match-details',
+          matchId: this.currentMatchId,
+          capabilities: {
+            actions: [
+              'deep-analysis',
+              'statistical-breakdown',
+              'risk-assessment',
+              'prediction-confidence'
+            ]
+          }
+        }
+      })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.answer) {
+        this.showNotification(`🔬 Analyse approfondie: ${data.answer.substring(0, 100)}...`);
+      } else {
+        this.showNotification(`🔬 Analyse approfondie lancée pour: ${pariName}`);
+      }
+    })
+    .catch(error => {
+      console.error('Deep analysis error:', error);
+      this.showNotification(`🔬 Analyse approfondie lancée pour: ${pariName}`);
+    });
   }
 
   selectAlternative(pariName, odds) {
