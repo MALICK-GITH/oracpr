@@ -285,6 +285,144 @@ h1 {
   line-height: 1.45;
 }
 
+.exact-score-imperial {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(255, 214, 102, 0.18), transparent 32%),
+    radial-gradient(circle at left center, rgba(59, 231, 255, 0.12), transparent 36%),
+    linear-gradient(160deg, rgba(18, 18, 32, 0.96), rgba(11, 17, 33, 0.96));
+  padding: 1.1rem;
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.34);
+}
+
+.exact-score-imperial::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 4px;
+  background: linear-gradient(90deg, #ffd479, #f6ff8c, #53ceff, #8effb0);
+}
+
+.exact-score-crown {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.exact-score-kicker {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(255, 212, 121, 0.12);
+  border: 1px solid rgba(255, 212, 121, 0.3);
+  color: #ffe39d;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+}
+
+.exact-score-mainline {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.9fr);
+  gap: 0.8rem;
+}
+
+.exact-score-primary,
+.exact-score-reliability,
+.exact-score-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.95rem;
+}
+
+.exact-score-primary strong,
+.exact-score-reliability span,
+.exact-score-card strong {
+  display: block;
+}
+
+.exact-score-value {
+  font-family: "Chakra Petch", sans-serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+  margin: 0.35rem 0;
+  letter-spacing: -0.04em;
+  color: #fff4cf;
+  text-shadow: 0 0 22px rgba(255, 212, 121, 0.18);
+}
+
+.exact-score-reliability strong {
+  font-family: "Chakra Petch", sans-serif;
+  font-size: 2.2rem;
+  line-height: 1;
+  margin: 0.3rem 0;
+}
+
+.exact-score-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.9rem;
+}
+
+.exact-score-card p,
+.exact-score-primary small,
+.exact-score-reliability small,
+.exact-score-note {
+  margin: 0;
+  color: rgba(232, 242, 255, 0.78);
+  line-height: 1.45;
+}
+
+.exact-score-alt-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.65rem;
+}
+
+.exact-score-alt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  padding: 0.38rem 0.62rem;
+  background: rgba(83, 206, 255, 0.1);
+  border: 1px solid rgba(83, 206, 255, 0.18);
+  color: #e7f7ff;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+}
+
+.exact-score-alt small {
+  color: rgba(232, 242, 255, 0.72);
+  font-size: 0.72rem;
+}
+
+.exact-score-note {
+  margin-top: 0.9rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 0.84rem;
+}
+
+.exact-score-elite .exact-score-reliability strong { color: #8effb0; }
+.exact-score-strong .exact-score-reliability strong { color: #ffd479; }
+.exact-score-watch .exact-score-reliability strong { color: #ff9e7b; }
+
+@media (max-width: 760px) {
+  .exact-score-mainline {
+    grid-template-columns: 1fr;
+  }
+}
+
 .panel h2 {
   margin: 0 0 0.52rem;
   font-family: "Chakra Petch", sans-serif;
