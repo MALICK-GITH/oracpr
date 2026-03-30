@@ -3,6 +3,7 @@ const DRIFT_THRESHOLD_PERCENT = 8;
 const PAGE_REFRESH_STORAGE_KEY = "fc25_page_refresh_minutes_v1";
 const DEFAULT_PAGE_REFRESH_MINUTES = 5;
 const LOW_DATA_MODE_KEY = "fc25_low_data_mode_v1";
+const AUTO_REFRESH_ENABLED = false;
 
 let radarChart = null;
 let flowChart = null;
@@ -55,7 +56,8 @@ function setLowDataMode(value) {
 
 function updateRefreshBadge() {
   const el = document.getElementById("refreshBadge");
-  if (el) el.textContent = `Auto-refresh dans ${countdown}s`;
+  if (!el) return;
+  el.textContent = AUTO_REFRESH_ENABLED ? `Auto-refresh dans ${countdown}s` : "Auto-refresh desactive";
 }
 
 function getPageRefreshMinutes() {
@@ -75,6 +77,7 @@ function startPageRefreshTimer(minutes) {
     clearInterval(pageRefreshIntervalId);
     pageRefreshIntervalId = null;
   }
+  if (!AUTO_REFRESH_ENABLED) return;
   const ms = Math.max(1, Number(minutes) || DEFAULT_PAGE_REFRESH_MINUTES) * 60 * 1000;
   pageRefreshIntervalId = setInterval(() => {
     window.location.reload();
@@ -105,6 +108,14 @@ function notifyAction(title, detail = "") {
 }
 
 function startAutoRefresh() {
+  if (!AUTO_REFRESH_ENABLED) {
+    if (refreshIntervalId) clearInterval(refreshIntervalId);
+    if (countdownIntervalId) clearInterval(countdownIntervalId);
+    refreshIntervalId = null;
+    countdownIntervalId = null;
+    updateRefreshBadge();
+    return;
+  }
   if (!refreshIntervalId) {
     refreshIntervalId = setInterval(() => {
       countdown = AUTO_REFRESH_SECONDS;
@@ -890,6 +901,8 @@ function init() {
   if (refreshInput) {
     const defaultMin = getPageRefreshMinutes();
     refreshInput.value = String(defaultMin);
+    refreshInput.disabled = !AUTO_REFRESH_ENABLED;
+    refreshInput.title = AUTO_REFRESH_ENABLED ? "" : "Le rafraichissement automatique est desactive pour proteger le chat IA.";
     startPageRefreshTimer(defaultMin);
     refreshInput.addEventListener("change", () => {
       const v = setPageRefreshMinutes(refreshInput.value);

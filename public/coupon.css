@@ -208,6 +208,71 @@ h1 {
   display: none !important;
 }
 
+.coupon-health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.coupon-health-card {
+  border: 1px solid rgba(0, 240, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(9, 16, 31, 0.76);
+  padding: 0.8rem;
+}
+
+.coupon-health-card strong {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: #8effb0;
+  font-family: "Chakra Petch", sans-serif;
+}
+
+.coupon-health-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.42;
+}
+
+.coupon-health-meta {
+  margin-top: 0.75rem;
+}
+
+.history-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.34rem;
+}
+
+.history-card strong,
+.history-card span,
+.history-card small {
+  display: block;
+}
+
+.history-card span,
+.history-card small {
+  color: var(--muted);
+}
+
+.history-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.history-metrics span {
+  border-radius: 999px;
+  padding: 0.22rem 0.56rem;
+  background: rgba(0, 240, 255, 0.08);
+  color: #dff7ff;
+  font-size: 0.74rem;
+}
+
 .controls input,
 .controls select {
   border: 1px solid var(--line);

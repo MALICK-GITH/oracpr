@@ -39,6 +39,7 @@ const COUPON_START_ALERT_KEY = "fc25_coupon_start_alert_v1";
 const COUPON_DRIFT_KEY = "fc25_coupon_drift_v1";
 const COUPON_WATCH_DELTA_KEY = "fc25_coupon_watch_delta_v1";
 const COUPON_IMAGE_FMT_KEY = "fc25_coupon_export_format_v1";
+const AUTO_REFRESH_ENABLED = false;
 
 function siteLog(level, message, meta) {
   if (!window.SiteLogger || typeof window.SiteLogger[level] !== "function") return;
@@ -143,6 +144,7 @@ function startCouponPageRefreshTimer(minutes) {
     clearInterval(pageRefreshCouponIntervalId);
     pageRefreshCouponIntervalId = null;
   }
+  if (!AUTO_REFRESH_ENABLED) return;
   const ms = Math.max(1, Number(minutes) || DEFAULT_PAGE_REFRESH_MINUTES) * 60 * 1000;
   pageRefreshCouponIntervalId = setInterval(() => {
     window.location.reload();
@@ -565,16 +567,29 @@ function renderHealthPanel(coupon = [], riskProfile = "balanced", summary = {}) 
   const statusLabel = score >= 75 ? "VERT" : score >= 60 ? "ORANGE" : "ROUGE";
   const startText =
     insights.minStartMinutes == null ? "-" : `${Math.max(0, Math.floor(insights.minStartMinutes))} min`;
+  const combinedOdd = Number(summary.combinedOdd || 0);
   panel.innerHTML = `
     <h3>Dashboard Sante du Coupon</h3>
     <p><span class="health-score ${statusClass}">Sante ${score}/100 - ${statusLabel}</span></p>
-    <div class="meta">
-      <span>Fiabilite ticket: ${insights.reliabilityIndex}/100</span>
+    <div class="coupon-health-grid">
+      <article class="coupon-health-card">
+        <strong>Qualite globale</strong>
+        <p>${score >= 75 ? "Ticket premium, pret a etre valide." : score >= 60 ? "Ticket exploitable, relis les points sensibles." : "Ticket fragile, corrige avant envoi."}</p>
+      </article>
+      <article class="coupon-health-card">
+        <strong>Execution</strong>
+        <p>Confiance moyenne ${Number(summary.averageConfidence || insights.confidenceAvg || 0)}% | cote globale ${combinedOdd ? formatOdd(combinedOdd) : "-"}</p>
+      </article>
+      <article class="coupon-health-card">
+        <strong>Risque structurel</strong>
+        <p>Correlation ${insights.correlationRisk}% | fiabilite ticket ${insights.reliabilityIndex}/100 | drift ${drift}%.</p>
+      </article>
+    </div>
+    <div class="meta coupon-health-meta">
       <span>Stabilite: ${score >= 75 ? "Haute" : score >= 60 ? "Moyenne" : "Faible"}</span>
-      <span>Correlation: ${insights.correlationRisk}%</span>
-      <span>Confiance moyenne: ${Number(summary.averageConfidence || insights.confidenceAvg || 0)}%</span>
+      <span>Diversite ligues: ${insights.leagueDiversity}%</span>
       <span>Demarrage min: ${startText}</span>
-      <span>Seuil drift actif: ${drift}%</span>
+      <span>Mode risque: ${riskProfile}</span>
     </div>
   `;
 }
@@ -696,7 +711,21 @@ function writeHistory(items) {
 
 function addHistoryEntry(entry) {
   const items = readHistory();
-  items.unshift(entry);
+  const enriched = { ...entry };
+  if (lastCouponData?.coupon?.length) {
+    const insights = computeCouponInsights(lastCouponData.coupon, lastCouponData.riskProfile || "balanced");
+    enriched.metrics = enriched.metrics || {
+      selections: Number(lastCouponData.summary?.totalSelections || lastCouponData.coupon.length || 0),
+      combinedOdd: Number(lastCouponData.summary?.combinedOdd || 0),
+      qualityScore: Number(insights.qualityScore || 0),
+      reliabilityIndex: Number(insights.reliabilityIndex || 0),
+      confidenceAvg: Number(lastCouponData.summary?.averageConfidence || insights.confidenceAvg || 0),
+    };
+    enriched.story =
+      enriched.story ||
+      `Profil ${lastCouponData.riskProfile || "balanced"} | qualite ${enriched.metrics.qualityScore}/100 | ${enriched.metrics.selections} selections.`;
+  }
+  items.unshift(enriched);
   writeHistory(items);
   renderHistory();
 }
@@ -713,7 +742,7 @@ function renderHistory() {
     .slice(0, 8)
     .map(
       (x, i) => `
-      <li>
+      <li class="history-card">
         <strong>${i + 1}. ${
           x.type === "validation"
             ? "Validation"
@@ -724,6 +753,17 @@ function renderHistory() {
             : "Coupon"
         } - ${new Date(x.at).toLocaleString("fr-FR")}</strong>
         <span>${x.note}</span>
+        ${x.story ? `<small>${x.story}</small>` : ""}
+        ${
+          x.metrics
+            ? `<div class="history-metrics">
+                <span>Qualite ${Number(x.metrics.qualityScore || 0)}/100</span>
+                <span>Fiabilite ${Number(x.metrics.reliabilityIndex || 0)}/100</span>
+                <span>${Number(x.metrics.selections || 0)} selections</span>
+                <span>Cote ${Number(x.metrics.combinedOdd || 0) ? formatOdd(x.metrics.combinedOdd) : "-"}</span>
+              </div>`
+            : ""
+        }
       </li>
     `
     )
@@ -3553,6 +3593,8 @@ async function initCouponPage() {
   if (refreshInput) {
     const m = getPageRefreshMinutesCoupon();
     refreshInput.value = String(m);
+    refreshInput.disabled = !AUTO_REFRESH_ENABLED;
+    refreshInput.title = AUTO_REFRESH_ENABLED ? "" : "Le rafraichissement automatique est desactive pour proteger le chat IA.";
     startCouponPageRefreshTimer(m);
     refreshInput.addEventListener("change", () => {
       const next = setPageRefreshMinutesCoupon(refreshInput.value);

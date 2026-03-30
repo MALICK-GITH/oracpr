@@ -958,6 +958,94 @@ function renderMatchFinder(matches) {
     .join("");
 }
 
+function buildSiteCommandMetrics(matches = []) {
+  const upcoming = (matches || []).filter((m) => classifyMatch(m) === "upcoming");
+  const live = (matches || []).filter((m) => classifyMatch(m) === "live");
+  const sorted = [...upcoming].sort((a, b) => {
+    const ra = conservativeDenicheurRank(a);
+    const rb = conservativeDenicheurRank(b);
+    return rb - ra;
+  });
+  const top = sorted.slice(0, 3);
+  const avgReliability = upcoming.length
+    ? Math.round(upcoming.reduce((acc, match) => acc + Number(match.reliabilityScore || 0), 0) / upcoming.length)
+    : 0;
+  const stableCount = upcoming.filter((m) => trendFlagCount(m) === 0).length;
+  const qualityIndex = clamp(
+    Math.round(avgReliability * 0.58 + (upcoming.length ? (stableCount / upcoming.length) * 100 : 0) * 0.26 + (live.length ? 72 : 58) * 0.16),
+    5,
+    99
+  );
+  return { upcoming, live, top, avgReliability, stableCount, qualityIndex };
+}
+
+function renderSiteCommandCenter(matches = []) {
+  const host = document.getElementById("siteCommandCenter");
+  if (!host) return;
+
+  const metrics = buildSiteCommandMetrics(matches);
+  const topRows = metrics.top.length
+    ? metrics.top
+        .map((match, index) => {
+          const finder = prudentDenicheurScore(match);
+          return `
+            <article class="command-pick-card">
+              <div class="command-pick-rank">#${index + 1}</div>
+              <div class="command-pick-main">
+                <strong>${escapeHtml(match.teamHome)} vs ${escapeHtml(match.teamAway)}</strong>
+                <span>${escapeHtml(match.league || "Ligue")} | ${formatTime(match.startTimeUnix)}</span>
+              </div>
+              <div class="command-pick-metrics">
+                <span>Fiabilite ${Number(match.reliabilityScore || 0)}%</span>
+                <span>Denicheur ${finder}</span>
+              </div>
+              <a class="command-pick-link" href="/match.html?id=${encodeURIComponent(match.id)}">Ouvrir</a>
+            </article>
+          `;
+        })
+        .join("")
+    : `<p class="command-empty">Aucun pick fort detecte pour le moment.</p>`;
+
+  const statusTone =
+    metrics.qualityIndex >= 78 ? "command-good" : metrics.qualityIndex >= 62 ? "command-mid" : "command-low";
+  const statusLabel =
+    metrics.qualityIndex >= 78 ? "Flux premium" : metrics.qualityIndex >= 62 ? "Flux exploitable" : "Flux prudent";
+
+  host.innerHTML = `
+    <div class="command-head">
+      <div>
+        <p class="command-kicker">Pilotage intelligent</p>
+        <h2>Centre de Commande</h2>
+        <p class="command-copy">Un seul endroit pour lire la qualite globale du flux, le parcours ideal et les meilleurs matchs a ouvrir maintenant.</p>
+      </div>
+      <div class="command-score ${statusTone}">
+        <span>Indice global</span>
+        <strong>${metrics.qualityIndex}/100</strong>
+        <small>${statusLabel}</small>
+      </div>
+    </div>
+    <div class="command-grid">
+      <article class="command-card">
+        <strong>Parcours conseille</strong>
+        <p>1. Choisir un mode. 2. Ouvrir un detail match. 3. Construire le coupon. 4. Valider puis exporter.</p>
+      </article>
+      <article class="command-card">
+        <strong>Sante du flux</strong>
+        <p>${metrics.upcoming.length} matchs a venir, ${metrics.live.length} en cours, fiabilite moyenne ${metrics.avgReliability}%.</p>
+      </article>
+      <article class="command-card">
+        <strong>Stabilite marche</strong>
+        <p>${metrics.stableCount} matchs a venir sont sans drift visible fort sur les 3 issues principales.</p>
+      </article>
+    </div>
+    <div class="command-subhead">
+      <strong>Top ouvertures recommandees</strong>
+      <span>Detail match -> coupon -> validation</span>
+    </div>
+    <div class="command-picks">${topRows}</div>
+  `;
+}
+
 function renderMatches() {
   const subTitle = document.getElementById("subTitle");
   const matchesWrap = document.getElementById("matches");
@@ -1006,6 +1094,7 @@ function renderMatches() {
       ? "En cours"
       : "Termines";
   subTitle.textContent = `${filtered.length} match(s) (${leagueLabel}, ${modeLabel}) - ${currentModeLabel}`;
+  renderSiteCommandCenter(byLeague);
 
   matchesWrap.innerHTML = "";
   emptyState.classList.toggle("hidden", filtered.length > 0);
@@ -1053,6 +1142,7 @@ async function loadMatches() {
     statsWrap.appendChild(createStat("Ligues", uniqueLeagues(allMatches).length));
 
     populateLeagueFilter(allMatches);
+    renderSiteCommandCenter(allMatches);
     renderLeagueHeatmap(allMatches);
     renderMatchFinder(allMatches);
     renderMatches();
