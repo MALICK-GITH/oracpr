@@ -82,7 +82,7 @@
       <div class="chat-context-banner">Historique partage entre accueil, details et coupon.</div>
       <div class="chat-log" id="chatLog"></div>
       <form class="chat-form" id="chatForm">
-        <textarea class="chat-input" id="chatInput" placeholder="Demande une action, une analyse ou une question generale..."></textarea>
+        <textarea class="chat-input" id="chatInput" placeholder="Demande une action, une analyse ou une question generale..." enterkeyhint="send"></textarea>
         <button class="chat-send" type="submit">Envoyer</button>
       </form>
     `;
@@ -111,6 +111,15 @@
       log.scrollTop = log.scrollHeight;
     }
 
+    function openChat() {
+      panel.classList.remove("chat-hidden");
+      log.scrollTop = log.scrollHeight;
+      window.requestAnimationFrame(() => {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      });
+    }
+
     function push(role, text) {
       history.push({ role, text: String(text || "") });
       saveHistory(history);
@@ -126,7 +135,7 @@
       render();
     }
 
-    fab.addEventListener("click", () => panel.classList.remove("chat-hidden"));
+    fab.addEventListener("click", openChat);
     closeBtn.addEventListener("click", () => panel.classList.add("chat-hidden"));
     clearBtn.addEventListener("click", () => {
       history = [];
@@ -156,6 +165,16 @@
         push("assistant", `Erreur: ${error.message}`);
       } finally {
         busy = false;
+      }
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing) return;
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        if (!busy) {
+          form.requestSubmit();
+        }
       }
     });
   }
