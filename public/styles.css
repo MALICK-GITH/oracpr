@@ -268,6 +268,203 @@ h1 {
   padding: 1.1rem;
 }
 
+.frontline-update,
+.watchlist-panel {
+  margin-bottom: 0.95rem;
+}
+
+.frontline-update-card,
+.watchlist-shell {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(160deg, rgba(14, 26, 48, 0.95), rgba(7, 12, 24, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 14px 30px rgba(0, 0, 0, 0.24);
+}
+
+.frontline-update-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.85rem 1rem;
+}
+
+.frontline-update-card.is-fresh {
+  border-color: rgba(66, 245, 108, 0.35);
+  background: linear-gradient(160deg, rgba(16, 38, 42, 0.96), rgba(8, 14, 24, 0.98));
+}
+
+.frontline-update-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.frontline-update-kicker,
+.watchlist-kicker {
+  margin: 0;
+  color: #8fe5ff;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.frontline-update-copy strong {
+  font-size: 1rem;
+  color: #f1fbff;
+}
+
+.frontline-update-copy span {
+  color: rgba(214, 230, 250, 0.76);
+  font-size: 0.83rem;
+  line-height: 1.4;
+}
+
+.frontline-update-btn {
+  border: 1px solid rgba(88, 214, 255, 0.5);
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(66, 245, 108, 0.96), rgba(36, 215, 255, 0.96));
+  color: #04111d;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  padding: 0.7rem 1rem;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.watchlist-shell {
+  padding: 1rem;
+}
+
+.watchlist-empty {
+  color: rgba(214, 230, 250, 0.82);
+}
+
+.watchlist-empty h2,
+.watchlist-head h2 {
+  margin: 0.2rem 0 0.45rem;
+  font-family: "Chakra Petch", sans-serif;
+  color: #f0fbff;
+}
+
+.watchlist-empty p,
+.watchlist-head p {
+  margin: 0;
+  color: rgba(197, 216, 245, 0.76);
+  line-height: 1.45;
+}
+
+.watchlist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.85rem;
+  margin-bottom: 0.9rem;
+}
+
+.watchlist-count {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  border-radius: 999px;
+  padding: 0.4rem 0.75rem;
+  background: rgba(255, 209, 102, 0.1);
+  color: #ffe4a0;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+}
+
+.watchlist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.8rem;
+}
+
+.watchlist-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, rgba(10, 19, 36, 0.96), rgba(6, 12, 24, 0.98));
+}
+
+.watchlist-card-head {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0.65rem;
+}
+
+.watchlist-card-head strong {
+  color: #f3fbff;
+  line-height: 1.35;
+}
+
+.watchlist-card-head span {
+  color: #9fc3ef;
+  font-size: 0.8rem;
+}
+
+.watchlist-mini-score {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.watchlist-mini-score span {
+  border-radius: 999px;
+  padding: 0.28rem 0.55rem;
+  background: rgba(36, 215, 255, 0.11);
+  border: 1px solid rgba(36, 215, 255, 0.2);
+  color: #d9f6ff;
+  font-size: 0.74rem;
+}
+
+.watchlist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.watchlist-link,
+.watchlist-remove-btn,
+.watch-toggle {
+  min-height: 42px;
+  border-radius: 999px;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+}
+
+.watchlist-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 0.85rem;
+  color: #081322;
+  background: linear-gradient(90deg, #42f56c, #5dfde8);
+  text-decoration: none;
+  border: 1px solid rgba(66, 245, 108, 0.35);
+}
+
+.watchlist-remove-btn,
+.watch-toggle {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ecf8ff;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.watch-toggle {
+  min-height: 34px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.72rem;
+}
+
+.watch-toggle.active {
+  background: rgba(66, 245, 108, 0.16);
+  border-color: rgba(66, 245, 108, 0.42);
+  color: #ccffd8;
+}
+
 .command-head {
   display: flex;
   flex-wrap: wrap;
@@ -1430,6 +1627,50 @@ body.low-data .odd-alerts {
   text-shadow: 0 0 16px rgba(36, 215, 255, 0.35);
 }
 
+.visual-score-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+  padding: 0 0.95rem 0.9rem;
+}
+
+.visual-score-card {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, rgba(11, 20, 38, 0.92), rgba(6, 12, 24, 0.98));
+  padding: 0.72rem 0.65rem;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.visual-score-card span {
+  color: #9bbce7;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.visual-score-card strong {
+  font-family: "Chakra Petch", sans-serif;
+  font-size: 1.3rem;
+  color: #effcff;
+}
+
+.visual-score-card.tone-high {
+  border-color: rgba(66, 245, 108, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(66, 245, 108, 0.07);
+}
+
+.visual-score-card.tone-mid {
+  border-color: rgba(255, 209, 102, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.07);
+}
+
+.visual-score-card.tone-low {
+  border-color: rgba(255, 95, 121, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(255, 95, 121, 0.07);
+}
+
 .odds-row {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -1525,6 +1766,17 @@ footer {
   font-size: 0.9rem;
 }
 
+#updatedAt,
+#appVersionTag {
+  display: block;
+}
+
+#appVersionTag {
+  margin-top: 0.28rem;
+  color: rgba(180, 200, 230, 0.66);
+  font-size: 0.76rem;
+}
+
 .legal-foot {
   margin: 0.5rem 0 0.75rem;
   font-size: 0.78rem;
@@ -1580,6 +1832,18 @@ footer {
   .stats {
     grid-template-columns: 1fr;
     gap: 0.5rem;
+  }
+
+  .frontline-update-card,
+  .watchlist-head,
+  .watchlist-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .watchlist-grid,
+  .visual-score-strip {
+    grid-template-columns: 1fr 1fr;
   }
   
   .heatmap-grid {
@@ -1671,6 +1935,7 @@ footer {
 
   .league-row,
   .scoreboard,
+  .visual-score-strip,
   .odds-row,
   .kickoff {
     padding-left: 0.72rem;
@@ -1698,6 +1963,14 @@ footer {
     font-size: 1.14rem;
   }
 
+  .visual-score-card {
+    padding: 0.62rem 0.55rem;
+  }
+
+  .visual-score-card strong {
+    font-size: 1.08rem;
+  }
+
   .detail-btn {
     margin-left: 0.72rem;
     margin-right: 0.72rem;
@@ -1707,6 +1980,11 @@ footer {
   .status-pill {
     font-size: 0.68rem;
     padding: 0.18rem 0.45rem;
+  }
+
+  .watch-toggle {
+    width: 100%;
+    min-height: 40px;
   }
 
   /* iOS specific optimizations */
@@ -1820,6 +2098,10 @@ footer {
   
   .odd-box strong {
     font-size: 1.05rem;
+  }
+
+  .visual-score-strip {
+    grid-template-columns: 1fr;
   }
 }
 

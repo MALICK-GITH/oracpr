@@ -1,4 +1,4 @@
-const CACHE_VERSION = "fc25-cache-v4";
+const CACHE_VERSION = "fc25-cache-v5";
 const ASSETS = [
   "/",
   "/index.html",
@@ -18,11 +18,18 @@ const ASSETS = [
   "/mode-emploi.js",
   "/chat-widget.css",
   "/chat-widget.js",
+  "/browser-sync.js",
   "/signature.css",
   "/manifest.webmanifest",
   "/icon-192.svg",
   "/icon-512.svg"
 ];
+
+self.addEventListener("message", (event) => {
+  if (event?.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

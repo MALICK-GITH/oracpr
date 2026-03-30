@@ -6,6 +6,9 @@ const STRONG_ODD_CHANGE_PERCENT = 9;
 const ODD_ALERT_COOLDOWN_MS = 90 * 1000;
 const oddAlertLastShown = new Map();
 const LOW_DATA_MODE_KEY = "fc25_low_data_mode_v1";
+const WATCHLIST_KEY = "fc25_watchlist_v1";
+const WATCHLIST_SNAPSHOT_KEY = "fc25_watchlist_snapshot_v1";
+const FRONTEND_VERSION = "2026.03.30-r3";
 let lastFetchedAt = null;
 const WELCOME_MODAL_KEY = "fc25_welcome_modal_v1";
 const DENICHEUR_HISTORY_KEY = "fc25_denicheur_history_v1";
@@ -125,6 +128,284 @@ function isLowDataModeEnabled() {
 function setLowDataMode(value) {
   localStorage.setItem(LOW_DATA_MODE_KEY, value ? "1" : "0");
   document.body.classList.toggle("low-data", Boolean(value));
+}
+
+function loadWatchlistIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
+    return Array.isArray(raw) ? raw.map((id) => String(id)) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function saveWatchlistIds(ids) {
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(Array.from(new Set((ids || []).map((id) => String(id))))));
+}
+
+function isInWatchlist(matchId) {
+  return loadWatchlistIds().includes(String(matchId || ""));
+}
+
+function toggleWatchlist(matchId) {
+  const id = String(matchId || "");
+  if (!id) return false;
+  const ids = loadWatchlistIds();
+  const next = ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id];
+  saveWatchlistIds(next);
+  return next.includes(id);
+}
+
+function readWatchlistSnapshots() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WATCHLIST_SNAPSHOT_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function saveWatchlistSnapshots(snapshots) {
+  localStorage.setItem(WATCHLIST_SNAPSHOT_KEY, JSON.stringify(snapshots || {}));
+}
+
+function matchTimelineLabel(match) {
+  const mins = minutesToStart(match);
+  if (mins < 0) return "En jeu";
+  if (mins <= 10) return "Imminent";
+  if (mins <= 45) return "Fenetre forte";
+  if (mins <= 120) return "A surveiller";
+  return "Plus tard";
+}
+
+function watchlistSignal(match) {
+  const reliability = Number(match?.reliabilityScore || 0);
+  const drifts = trendFlagCount(match);
+  const mins = minutesToStart(match);
+  if (reliability >= 78 && drifts === 0 && mins >= 0 && mins <= 45) return "Signal premium";
+  if (reliability >= 68 && drifts <= 1) return "Signal stable";
+  if (drifts >= 2) return "Marche nerveux";
+  return "Suivi prudent";
+}
+
+function buildMatchVisualScores(match) {
+  const quality = clamp(Math.round(Number(match?.reliabilityScore || 0)), 5, 99);
+  const stability = clamp(
+    Math.round(stabilityFromTrend(match?.trend) * 0.72 + depthScoreFromBets(match?.betsCount) * 0.28),
+    5,
+    99
+  );
+  const potential = clamp(Math.round(estimatedSuccessProbability(match) * 1.55 + 6), 5, 99);
+  const mins = minutesToStart(match);
+  const timing =
+    mins < 0
+      ? 52
+      : mins <= 12
+      ? 96
+      : mins <= 45
+      ? 88
+      : mins <= 120
+      ? 72
+      : 58;
+  return {
+    quality,
+    stability,
+    potential,
+    timing,
+    overall: clamp(Math.round(quality * 0.36 + stability * 0.28 + potential * 0.22 + timing * 0.14), 5, 99),
+  };
+}
+
+function metricTone(score) {
+  if (score >= 80) return "high";
+  if (score >= 62) return "mid";
+  return "low";
+}
+
+function renderVisualScoreStrip(match) {
+  const metrics = buildMatchVisualScores(match);
+  const rows = [
+    ["Qualite", metrics.quality],
+    ["Stabilite", metrics.stability],
+    ["Potentiel", metrics.potential],
+    ["Timing", metrics.timing],
+  ];
+  return `
+    <div class="visual-score-strip" aria-label="Lecture rapide du match">
+      ${rows
+        .map(
+          ([label, value]) => `
+            <article class="visual-score-card tone-${metricTone(value)}">
+              <span>${label}</span>
+              <strong>${value}</strong>
+            </article>
+          `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderFrontlineStatus() {
+  const host = document.getElementById("frontlineUpdateStatus");
+  const footerTag = document.getElementById("appVersionTag");
+  if (footerTag) footerTag.textContent = `Version front ${FRONTEND_VERSION}`;
+  if (!host) return;
+
+  const storedVersion = localStorage.getItem("fc25_front_version_seen");
+  const firstSeen = localStorage.getItem("fc25_front_version_first_seen");
+  const isFreshVersion = storedVersion !== FRONTEND_VERSION;
+
+  if (!firstSeen || isFreshVersion) {
+    localStorage.setItem("fc25_front_version_first_seen", new Date().toISOString());
+  }
+  localStorage.setItem("fc25_front_version_seen", FRONTEND_VERSION);
+
+  host.innerHTML = `
+    <div class="frontline-update-card ${isFreshVersion ? "is-fresh" : ""}">
+      <div class="frontline-update-copy">
+        <p class="frontline-update-kicker">Versioning intelligent</p>
+        <strong>Front ${FRONTEND_VERSION}</strong>
+        <span>${isFreshVersion ? "Nouvelle version locale active. Si besoin, recharge une seule fois." : "Version synchronisee. Le site reste stable sur mobile et PC."}</span>
+      </div>
+      <button type="button" class="frontline-update-btn" id="frontlineReloadBtn">Verifier maintenant</button>
+    </div>
+  `;
+
+  const btn = document.getElementById("frontlineReloadBtn");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("fc25:manual-update-check"));
+    });
+  }
+}
+
+function renderWatchlistPanel(matches = []) {
+  const host = document.getElementById("watchlistPanel");
+  if (!host) return;
+
+  const ids = loadWatchlistIds();
+  if (!ids.length) {
+    host.innerHTML = `
+      <div class="watchlist-shell watchlist-empty">
+        <div>
+          <p class="watchlist-kicker">Watchlist intelligente</p>
+          <h2>Surveille tes matchs forts</h2>
+          <p>Ajoute une rencontre depuis une carte pour suivre sa stabilite, son timing et les alertes de drift sans quitter l'accueil.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const rows = ids
+    .map((id) => matches.find((match) => String(match?.id) === id))
+    .filter(Boolean)
+    .slice(0, 6);
+
+  if (!rows.length) {
+    host.innerHTML = `
+      <div class="watchlist-shell watchlist-empty">
+        <div>
+          <p class="watchlist-kicker">Watchlist intelligente</p>
+          <h2>Watchlist en attente</h2>
+          <p>Les matchs suivis ne sont pas encore revenus dans le flux. Ils reapparaitront automatiquement des que l'API les remontera.</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  host.innerHTML = `
+    <div class="watchlist-shell">
+      <div class="watchlist-head">
+        <div>
+          <p class="watchlist-kicker">Watchlist intelligente</p>
+          <h2>Suivi prioritaire</h2>
+          <p>Les matchs ajoutes ici remontent en premier quand la confiance baisse, quand le kickoff approche ou quand le marche devient instable.</p>
+        </div>
+        <span class="watchlist-count">${rows.length} suivi(s)</span>
+      </div>
+      <div class="watchlist-grid">
+        ${rows
+          .map((match) => {
+            const metrics = buildMatchVisualScores(match);
+            return `
+              <article class="watchlist-card">
+                <div class="watchlist-card-head">
+                  <strong>${escapeHtml(match.teamHome)} vs ${escapeHtml(match.teamAway)}</strong>
+                  <span>${escapeHtml(match.league || "Ligue virtuelle")}</span>
+                </div>
+                <div class="watchlist-mini-score">
+                  <span>Indice ${metrics.overall}</span>
+                  <span>${watchlistSignal(match)}</span>
+                  <span>${matchTimelineLabel(match)}</span>
+                </div>
+                <div class="watchlist-actions">
+                  <a class="watchlist-link" href="/match.html?id=${encodeURIComponent(match.id)}">Ouvrir le detail</a>
+                  <button type="button" class="watchlist-remove-btn" data-watchlist-remove="${escapeHtml(match.id)}">Retirer</button>
+                </div>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </div>
+  `;
+
+  host.querySelectorAll("[data-watchlist-remove]").forEach((button) => {
+    button.addEventListener("click", () => {
+      toggleWatchlist(button.getAttribute("data-watchlist-remove"));
+      renderWatchlistPanel(allMatches);
+      renderMatches();
+    });
+  });
+}
+
+function updateWatchlistAlerts(matches = []) {
+  const ids = loadWatchlistIds();
+  if (!ids.length) return;
+
+  const previousSnapshots = readWatchlistSnapshots();
+  const nextSnapshots = {};
+
+  ids.forEach((id) => {
+    const match = (matches || []).find((item) => String(item?.id) === id);
+    const previous = previousSnapshots[id];
+    if (!match) {
+      if (previous) nextSnapshots[id] = previous;
+      return;
+    }
+
+    const current = {
+      home: normalizeOdd(match?.odds1x2?.home),
+      draw: normalizeOdd(match?.odds1x2?.draw),
+      away: normalizeOdd(match?.odds1x2?.away),
+      reliability: Number(match?.reliabilityScore || 0),
+      startTimeUnix: Number(match?.startTimeUnix || 0),
+      updatedAt: Date.now(),
+    };
+
+    if (previous) {
+      const homeChange = changePercent(previous.home, current.home);
+      const reliabilityDrop = previous.reliability - current.reliability;
+      const mins = minutesToStart(match);
+
+      if (homeChange != null && homeChange >= STRONG_ODD_CHANGE_PERCENT) {
+        pushOddAlert(`Watchlist: ${match.teamHome} vs ${match.teamAway} bouge fort sur le 1 (${homeChange.toFixed(1)}%).`);
+      }
+      if (reliabilityDrop >= 8) {
+        pushOddAlert(`Watchlist: la confiance baisse sur ${match.teamHome} vs ${match.teamAway} (${current.reliability}%).`);
+      }
+      if (mins >= 0 && mins <= 10 && Number(previous.startTimeUnix || 0) !== current.startTimeUnix) {
+        pushOddAlert(`Watchlist: ${match.teamHome} vs ${match.teamAway} entre dans la fenetre immediate.`);
+      }
+    }
+
+    nextSnapshots[id] = current;
+  });
+
+  saveWatchlistSnapshots(nextSnapshots);
 }
 
 function initWelcomeModal() {
@@ -726,6 +1007,8 @@ function createMatchCard(match, index) {
   const quality = useFinder ? prudentDenicheurScore(match) : Number(match.reliabilityScore || 0);
   const qualityLabel = useFinder ? "Prudent" : "Qualite";
   const qualityClass = quality >= 75 ? "quality-high" : quality >= 60 ? "quality-mid" : "quality-low";
+  const watchlisted = isInWatchlist(match.id);
+  const visualScores = renderVisualScoreStrip(match);
 
   const detailLink = document.createElement("a");
   detailLink.className = "detail-btn";
@@ -736,6 +1019,15 @@ function createMatchCard(match, index) {
     <div class="league-row">
       <p class="league">${match.league || "Ligue virtuelle"}</p>
       <div class="league-badges">
+        <button
+          type="button"
+          class="watch-toggle ${watchlisted ? "active" : ""}"
+          data-watch-id="${escapeHtml(match.id)}"
+          aria-pressed="${watchlisted ? "true" : "false"}"
+          aria-label="${watchlisted ? "Retirer de la watchlist" : "Ajouter a la watchlist"}"
+        >
+          ${watchlisted ? "Suivi actif" : "Suivre"}
+        </button>
         <span class="reliability-pill ${qualityClass}">${qualityLabel} ${quality}%</span>
         <span class="status-pill">${status}</span>
       </div>
@@ -751,6 +1043,7 @@ function createMatchCard(match, index) {
         <p class="team-name">${match.teamAway}</p>
       </div>
     </div>
+    ${visualScores}
     <div class="odds-row">
       <div class="odd-box ${match.trend?.home || ""}"><span>${match.teamHome}</span><strong>${formatOdd(match.odds1x2?.home)}</strong></div>
       <div class="odd-box ${match.trend?.draw || ""}"><span>Nul</span><strong>${formatOdd(match.odds1x2?.draw)}</strong></div>
@@ -772,6 +1065,17 @@ function createMatchCard(match, index) {
       if (wrapper) wrapper.classList.add("logo-fallback");
     });
   });
+  const watchBtn = card.querySelector("[data-watch-id]");
+  if (watchBtn) {
+    watchBtn.addEventListener("click", () => {
+      const active = toggleWatchlist(match.id);
+      watchBtn.classList.toggle("active", active);
+      watchBtn.setAttribute("aria-pressed", active ? "true" : "false");
+      watchBtn.setAttribute("aria-label", active ? "Retirer de la watchlist" : "Ajouter a la watchlist");
+      watchBtn.textContent = active ? "Suivi actif" : "Suivre";
+      renderWatchlistPanel(allMatches);
+    });
+  }
   return card;
 }
 
@@ -1095,6 +1399,7 @@ function renderMatches() {
       : "Termines";
   subTitle.textContent = `${filtered.length} match(s) (${leagueLabel}, ${modeLabel}) - ${currentModeLabel}`;
   renderSiteCommandCenter(byLeague);
+  renderWatchlistPanel(allMatches);
 
   matchesWrap.innerHTML = "";
   emptyState.classList.toggle("hidden", filtered.length > 0);
@@ -1133,6 +1438,7 @@ async function loadMatches() {
     const rawMatches = Array.isArray(data.matches) ? data.matches : [];
     lastFetchedAt = data.fetchedAt || null;
     allMatches = enrichWithTrend(rawMatches);
+    updateWatchlistAlerts(allMatches);
     const mode = data.filterMode === "keyword-penalty" ? "filtre mot-cle" : "fallback groupe gr=285";
     currentModeLabel = `mode: ${mode}`;
 
@@ -1143,6 +1449,8 @@ async function loadMatches() {
 
     populateLeagueFilter(allMatches);
     renderSiteCommandCenter(allMatches);
+    renderFrontlineStatus();
+    renderWatchlistPanel(allMatches);
     renderLeagueHeatmap(allMatches);
     renderMatchFinder(allMatches);
     renderMatches();
@@ -1275,3 +1583,4 @@ function registerHomeSiteControl() {
 }
 
 registerHomeSiteControl();
+renderFrontlineStatus();
