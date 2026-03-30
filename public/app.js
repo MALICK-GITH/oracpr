@@ -13,6 +13,11 @@ const DENICHEUR_FULL_OPTION_KEY = "fc25_denicheur_full_option_v1";
 let denicheurPreviousFocus = null;
 let denicheurBodyScrollY = 0;
 
+function siteLog(level, message, meta) {
+  if (!window.SiteLogger || typeof window.SiteLogger[level] !== "function") return;
+  window.SiteLogger[level](message, meta);
+}
+
 function shouldLockDenicheurScroll() {
   return window.matchMedia("(max-width: 640px)").matches;
 }
@@ -1052,11 +1057,13 @@ async function loadMatches() {
     renderMatchFinder(allMatches);
     renderMatches();
     updatedAt.textContent = `Derniere mise a jour: ${new Date(data.fetchedAt).toLocaleString("fr-FR")}`;
+    siteLog("log", "home_matches_loaded", { count: allMatches.length, mode: data.filterMode || "unknown" });
   } catch (error) {
     subTitle.textContent = "Erreur de chargement";
     emptyState.classList.remove("hidden");
     emptyState.textContent = `Erreur: ${error.message}`;
     updatedAt.textContent = "";
+    siteLog("error", "home_matches_load_failed", { message: error.message });
   }
 }
 

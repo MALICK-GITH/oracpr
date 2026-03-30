@@ -92,6 +92,77 @@ h1 {
 
 .hero p { margin: 0; color: var(--muted); }
 
+.coupon-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.coupon-chip {
+  border: 1px solid rgba(0, 240, 255, 0.24);
+  border-radius: 999px;
+  padding: 0.3rem 0.62rem;
+  color: #dff7ff;
+  background: rgba(8, 18, 34, 0.72);
+  font-size: 0.76rem;
+}
+
+.coupon-quickstart-panel {
+  margin-bottom: 0.75rem;
+}
+
+.coupon-quickstart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.7rem;
+}
+
+.coupon-quick-card {
+  border: 1px solid rgba(0, 240, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(8, 15, 28, 0.74);
+  padding: 0.85rem;
+}
+
+.coupon-quick-card strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #8ef5b4;
+  font-family: "Chakra Petch", sans-serif;
+}
+
+.coupon-quick-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.coupon-simple-toggle-row {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+#toggleCouponSimpleBtn {
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  border-radius: 999px;
+  padding: 0.55rem 0.95rem;
+  background: rgba(10, 18, 34, 0.88);
+  color: var(--text);
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+#couponSimpleModeLabel {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -130,6 +201,11 @@ h1 {
 .controls span {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.coupon-simple-mode .coupon-advanced-field,
+.coupon-simple-mode .coupon-advanced-action {
+  display: none !important;
 }
 
 .controls input,

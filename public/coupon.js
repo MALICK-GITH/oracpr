@@ -40,6 +40,11 @@ const COUPON_DRIFT_KEY = "fc25_coupon_drift_v1";
 const COUPON_WATCH_DELTA_KEY = "fc25_coupon_watch_delta_v1";
 const COUPON_IMAGE_FMT_KEY = "fc25_coupon_export_format_v1";
 
+function siteLog(level, message, meta) {
+  if (!window.SiteLogger || typeof window.SiteLogger[level] !== "function") return;
+  window.SiteLogger[level](message, meta);
+}
+
 function getCouponImageFormatPreference() {
   const r = document.querySelector('input[name="couponImgFmt"]:checked');
   if (r) return r.value === "jpg" ? "jpg" : "png";
@@ -3784,7 +3789,15 @@ async function initCouponPage() {
   }
 }
 
-initCouponPage();
+initCouponPage()
+  .then(() => {
+    siteLog("log", "coupon_page_initialized", { ok: true });
+  })
+  .catch((error) => {
+    siteLog("error", "coupon_page_init_failed", {
+      message: error && error.message ? error.message : String(error),
+    });
+  });
 
 const stakeInput = document.getElementById("stakeInput");
 if (stakeInput) {

@@ -259,6 +259,32 @@ h1 {
   border-color: rgba(59, 231, 255, 0.5);
 }
 
+.insight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.7rem;
+}
+
+.insight-card {
+  border: 1px solid rgba(109, 170, 255, 0.25);
+  border-radius: 14px;
+  background: linear-gradient(155deg, rgba(11, 20, 38, 0.92), rgba(7, 13, 24, 0.96));
+  padding: 0.85rem;
+}
+
+.insight-card strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: #8effb0;
+  font-family: "Chakra Petch", sans-serif;
+}
+
+.insight-card p {
+  margin: 0;
+  color: rgba(234, 243, 255, 0.82);
+  line-height: 1.45;
+}
+
 .panel h2 {
   margin: 0 0 0.52rem;
   font-family: "Chakra Petch", sans-serif;

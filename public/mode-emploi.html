@@ -35,6 +35,38 @@
           Guide a jour: denicheur modale, liste denicheur, modes de liste, detail match, coupon, exports, Telegram, limites API
           et pari responsable.
         </p>
+        <div class="guide-hero-grid">
+          <article class="guide-highlight">
+            <strong>Demarrage express</strong>
+            <p>Accueil -> Detail match -> Coupon -> Validation -> Export ou Telegram.</p>
+          </article>
+          <article class="guide-highlight">
+            <strong>Nouvelle IA unifiee</strong>
+            <p>La page details et la page coupon utilisent maintenant la meme API IA, ouverte aux questions generales et a la recherche contextuelle.</p>
+          </article>
+          <article class="guide-highlight">
+            <strong>Vue simple coupon</strong>
+            <p>La page coupon peut masquer les options avancees pour aller plus vite, puis les reafficher quand tu veux.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>0. Parcours le plus simple</h2>
+        <div class="grid">
+          <article class="mini">
+            <h3>Observer</h3>
+            <p>Depuis l'accueil, filtre les matchs puis ouvre la page details pour lire le pick phare, le brief intelligent et le coach IA.</p>
+          </article>
+          <article class="mini">
+            <h3>Assembler</h3>
+            <p>Va sur la page coupon en vue simple, choisis taille, ligue, risque, mise et genere ton ticket.</p>
+          </article>
+          <article class="mini">
+            <h3>Verifier puis envoyer</h3>
+            <p>Valide le ticket, controle le drift, puis exporte en image/PDF ou envoie sur Telegram.</p>
+          </article>
+        </div>
       </section>
 
       <section class="panel">
@@ -112,7 +144,9 @@
         <h2>4. Page detail match</h2>
         <ul>
           <li><strong>Neural Match Engine:</strong> radar + flux dynamique + KPI.</li>
+          <li><strong>Brief Intelligent:</strong> resume rapide du pick phare, du timing et des points de vigilance.</li>
           <li><strong>Validation locale:</strong> aide a voir si le pick reste propre.</li>
+          <li><strong>IA Coach unifiee:</strong> meme API que la page coupon, ouverte aux questions match, coupon, generales et recherches rapides.</li>
           <li><strong>Envoyer Telegram:</strong> envoi rapide d'un ticket 1 match.</li>
           <li><strong>PDF Match:</strong> export du ticket detail match.</li>
         </ul>
@@ -145,6 +179,25 @@
               <li><strong>PDF Detaille:</strong> version analytique + plan B.</li>
               <li><strong>Image Coupon:</strong> carte visuelle lisible style accueil.</li>
             </ul>
+          </article>
+        </div>
+        <p><strong>Nouveau:</strong> la page coupon demarre en <strong>vue simple</strong>. Tu peux afficher les options avancees si tu veux piloter l'automatisation, le drift, la bankroll ou la surveillance fine.</p>
+      </section>
+
+      <section class="panel">
+        <h2>5 bis. Que demander a l'IA ?</h2>
+        <div class="grid">
+          <article class="mini">
+            <h3>Sur details</h3>
+            <p>"Explique ce match simplement", "Compare avec mon coupon", "Fais une recherche rapide sur ce sujet".</p>
+          </article>
+          <article class="mini">
+            <h3>Sur coupon</h3>
+            <p>"Genere-moi un coupon safe 3 matchs", "Affiche les options avancees", "Optimise mon ticket".</p>
+          </article>
+          <article class="mini">
+            <h3>Hors contexte</h3>
+            <p>Les deux assistants peuvent maintenant repondre a des questions generales et ne restent plus bloques au seul contexte du match.</p>
           </article>
         </div>
       </section>
@@ -251,9 +304,9 @@ Toujours: Valider Ticket Pro avant envoi/export</div>
         </p>
       </footer>
     </main>
+    <script src="/solitaire-ai-client.js"></script>
     <script src="/global-theme-switcher.js"></script>
     <script src="/mobile-ultra-interactions.js"></script>
-    <script src="/chat-widget.js" defer></script>
     <script src="/chat-widget.js" defer></script>
     <script src="/browser-sync.js" defer></script>
   </body>

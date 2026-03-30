@@ -311,6 +311,19 @@ function localGeneralAnswer(message = "") {
   return `Reponse generale: ${q}. Si tu veux, je peux te donner une version courte, detaillee, ou un exemple concret.`;
 }
 
+function localResearchAnswer(message = "", researchContext = "") {
+  const lines = String(researchContext || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^\d+\.\s/.test(line));
+  if (!lines.length) return localGeneralAnswer(message);
+  const summary = lines
+    .slice(0, 2)
+    .map((line) => line.replace(/^\d+\.\s*/, ""))
+    .join(" | ");
+  return `Recherche rapide: ${summary}`;
+}
+
 function buildSiteKnowledgeBlock() {
   return [
     "BASE CONNAISSANCE SITE SOLITFIFPRO225 (TOUS FORMATS) — Signe SOLITAIRE HACK:",
@@ -325,6 +338,130 @@ function buildSiteKnowledgeBlock() {
     "- Regle metier critique: aucun coupon garanti gagnant; filtrer de preference les matchs non demarres.",
     "- CONTROLE IA (priorite): le site t'envoie snapshot + liste d'actions disponibles. Tu orientes l'utilisateur et tu sais que le backend declenche des actions securisees (navigation, refresh, site_control) quand l'utilisateur formule une intention claire.",
     "- Commandes reconnues (non exhaustif): accueil, page coupon, guide, actualise, image png/jpg, duo png jpg, copier coupon, reinitialiser coupon, generer/valider/telegram/pdf/story/premium, modes match (live, turbo, termines).",
+  ].join("\n");
+}
+
+function looksLikeResearchRequest(message = "") {
+  const text = normalizeTeamKey(message);
+  const keys = [
+    "recherche",
+    "cherche",
+    "search",
+    "actualite",
+    "news",
+    "dernier",
+    "derniere",
+    "latest",
+    "recent",
+    "recente",
+    "qui est",
+    "c est quoi",
+    "quest ce",
+    "definition",
+    "explique",
+    "hors match",
+    "hors contexte",
+  ];
+  return keys.some((key) => text.includes(key));
+}
+
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = CHAT_IO_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchWikiSummary(query, lang = "fr") {
+  const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(
+    query
+  )}&limit=1&namespace=0&format=json`;
+  const search = await fetchJsonWithTimeout(searchUrl, {}, 2200);
+  const title = Array.isArray(search?.[1]) ? search[1][0] : "";
+  if (!title) return null;
+
+  const summaryUrl = `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+  const summary = await fetchJsonWithTimeout(summaryUrl, {}, 2200);
+  const extract = trimText(summary?.extract || "", 500);
+  if (!extract) return null;
+
+  return {
+    source: `Wikipedia ${lang.toUpperCase()}`,
+    title: trimText(summary?.title || title, 140),
+    snippet: extract,
+    url: trimText(summary?.content_urls?.desktop?.page || "", 400),
+  };
+}
+
+async function fetchDuckDuckGoSnippet(query) {
+  const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
+  const data = await fetchJsonWithTimeout(url, {}, 2200);
+  const abstract = trimText(data?.AbstractText || "", 420);
+  const related =
+    Array.isArray(data?.RelatedTopics) && data.RelatedTopics.length
+      ? data.RelatedTopics
+          .flatMap((item) => (Array.isArray(item?.Topics) ? item.Topics : [item]))
+          .find((item) => trimText(item?.Text || "", 280))
+      : null;
+
+  if (abstract) {
+    return {
+      source: "DuckDuckGo Instant Answer",
+      title: trimText(data?.Heading || query, 140),
+      snippet: abstract,
+      url: trimText(data?.AbstractURL || "", 400),
+    };
+  }
+
+  if (related?.Text) {
+    return {
+      source: "DuckDuckGo Related Topic",
+      title: trimText(related?.FirstURL || query, 140),
+      snippet: trimText(related.Text, 420),
+      url: trimText(related?.FirstURL || "", 400),
+    };
+  }
+
+  return null;
+}
+
+async function buildWebResearchContext(message = "") {
+  if (!message) return "";
+  const shouldSearch = looksLikeResearchRequest(message) || !isSiteQuestion(message);
+  if (!shouldSearch) return "";
+
+  const results = [];
+  const seen = new Set();
+  const candidates = await Promise.allSettled([
+    fetchWikiSummary(message, "fr"),
+    fetchWikiSummary(message, "en"),
+    fetchDuckDuckGoSnippet(message),
+  ]);
+
+  for (const item of candidates) {
+    if (item.status !== "fulfilled" || !item.value?.snippet) continue;
+    const key = `${item.value.source}|${item.value.title}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    results.push(item.value);
+  }
+
+  if (!results.length) return "";
+
+  return [
+    "Recherche web contextuelle disponible:",
+    ...results.slice(0, 3).map((item, index) => {
+      const url = item.url ? ` | lien: ${item.url}` : "";
+      return `${index + 1}. ${item.source} | ${item.title} | ${item.snippet}${url}`;
+    }),
+    "Utilise ces elements si cela aide a repondre plus juste, surtout pour les questions generales ou demandant une recherche.",
   ].join("\n");
 }
 
@@ -2553,14 +2690,16 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const siteKnowledge = buildSiteKnowledgeBlock();
+    const webResearchContext = await buildWebResearchContext(message);
 
     const systemPrompt =
       "Tu es SOLITAIRE AI, bras operationnel du site FIFA Virtual Predictions (SOLITFIFPRO225, signe SOLITAIRE HACK). " +
       "Tu as la main sur les actions securisees exposees par le site (navigation, refresh, generation coupon, exports PNG/JPG, PDF, Telegram, reglages) via le mecanisme d'actions renvoye par le serveur. " +
       "Reponds en francais, ton premium et clair (1 a 5 phrases). " +
       "Priorite: guider vers une action concrete (bouton ou phrase declencheur) plutot que du blabla. " +
-      "Reste centre sur le site: matchs, cotes, coupon, risque, validation, exports PNG et JPG, Telegram, impression. " +
-      "Si la question derape, recadre vers une fonction du site. " +
+      "Tu peux repondre aussi aux questions generales hors site, sans recadrer de force. " +
+      "Si la question concerne le site, reste tres operationnel. Si elle est generale, reponds simplement et clairement. " +
+      "Quand une recherche web contextuelle est fournie, appuie-toi dessus et cite la source en texte court si utile. " +
       "Quand on te demande si tu vois la page, reponds OUI et cite le snapshot (titres, selections, boutons). " +
       "Tu ne promets jamais un gain garanti.\n\n" +
       siteKnowledge;
@@ -2575,6 +2714,7 @@ app.post("/api/chat", async (req, res) => {
             .join("\n")}`
         : "",
       `Contexte runtime:\n${runtimeContext}`,
+      webResearchContext ? `${webResearchContext}` : "",
       `Contexte page: ${page}`,
       matchId ? `Match ID: ${matchId}` : "",
       league ? `Ligue: ${league}` : "",
@@ -2727,21 +2867,27 @@ app.post("/api/chat", async (req, res) => {
       answer: `${
         isSiteQuestion(message)
           ? localChatFallback(message, { page, league, matchId })
-          : localGeneralAnswer(message)
+          : webResearchContext
+            ? localResearchAnswer(message, webResearchContext)
+            : localGeneralAnswer(message)
       }\n\n[Info technique: ${errors.join(" | ")}]`,
       actions,
     });
   } catch (error) {
+    const fallbackMessage = req.body?.message;
+    const fallbackResearch = await buildWebResearchContext(fallbackMessage);
     res.json({
       success: true,
       provider: "local-fallback",
       model: "local-fallback",
       answer: `${
-        isSiteQuestion(req.body?.message)
-          ? localChatFallback(req.body?.message, req.body?.context)
-          : localGeneralAnswer(req.body?.message)
+        isSiteQuestion(fallbackMessage)
+          ? localChatFallback(fallbackMessage, req.body?.context)
+          : fallbackResearch
+            ? localResearchAnswer(fallbackMessage, fallbackResearch)
+            : localGeneralAnswer(fallbackMessage)
       }\n\n[Info technique: ${error.message}]`,
-      actions: deriveControlActions(req.body?.message, req.body?.context || {}),
+      actions: deriveControlActions(fallbackMessage, req.body?.context || {}),
     });
   }
 });
@@ -2833,4 +2979,3 @@ function startServer(startPort, triesLeft = MAX_PORT_TRIES) {
 }
 
 startServer(DEFAULT_PORT);
-

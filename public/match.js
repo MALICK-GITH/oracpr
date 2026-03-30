@@ -281,6 +281,53 @@ function renderCoachPanel(data) {
   content.innerHTML = `<ol class="coach-list">${lines.map((x) => `<li class="coach-note">${x}</li>`).join("")}</ol>`;
 }
 
+function renderInsightDeck(data) {
+  const grid = document.getElementById("insightGrid");
+  if (!grid) return;
+
+  const selection = pickSingleSelectionFromDetails(data);
+  const match = data?.match || {};
+  const master = data?.prediction?.maitre?.decision_finale || {};
+  const top = data?.prediction?.analyse_avancee?.top_3_recommandations?.[0] || null;
+  const probs = impliedProbabilities(match?.odds1x2 || {});
+  const confidence = Number(selection?.confiance || master?.confiance_numerique || 0);
+  const startInMinutes = Math.max(
+    0,
+    Math.floor((Number(match?.startTimeUnix || 0) - Math.floor(Date.now() / 1000)) / 60)
+  );
+  const driftTag = previousOdds ? computeDrift(previousOdds, extractOdds(match)).length : 0;
+
+  const cards = [
+    {
+      title: "Pick phare",
+      text: `${selection?.pari || master?.pari_choisi || "Aucun pick propre"} | confiance ${confidence.toFixed(1)}%`,
+    },
+    {
+      title: "Lecture rapide",
+      text: `Domicile ${probs.home.toFixed(1)}% | Nul ${probs.draw.toFixed(1)}% | Exterieur ${probs.away.toFixed(1)}%`,
+    },
+    {
+      title: "Timing",
+      text: startInMinutes > 0 ? `Coup d'envoi estime dans ${startInMinutes} min.` : "Le match semble proche du direct ou deja lance.",
+    },
+    {
+      title: "A surveiller",
+      text: driftTag ? `${driftTag} drift(s) detecte(s) sur les cotes.` : `Top valeur: ${top?.pari || "stable pour le moment"}`,
+    },
+  ];
+
+  grid.innerHTML = cards
+    .map(
+      (card) => `
+        <article class="insight-card">
+          <strong>${card.title}</strong>
+          <p>${card.text}</p>
+        </article>
+      `
+    )
+    .join("");
+}
+
 function pickSingleSelectionFromDetails(data) {
   const match = data?.match || {};
   const prediction = data?.prediction || {};
@@ -806,6 +853,7 @@ async function loadData(trigger = "manual") {
     renderMaster(data.prediction?.maitre?.decision_finale || {}, data.prediction?.maitre?.analyse_bots || {});
     renderCoachPanel(data);
     renderNeuralCharts(data);
+    renderInsightDeck(data);
     renderBots(data.prediction?.bots || {});
     renderTop3(data.prediction?.analyse_avancee?.top_3_recommandations || []);
     renderMarkets(data.bettingMarkets || []);
@@ -814,6 +862,9 @@ async function loadData(trigger = "manual") {
     const drifts = computeDrift(previousOdds, currentOdds);
     renderDriftAlert(drifts);
     previousOdds = currentOdds;
+    if (window.aiCoach && typeof window.aiCoach.updateMatchContext === "function") {
+      window.aiCoach.updateMatchContext(match);
+    }
   } catch (error) {
     lastDetailsData = null;
     setMatchTelegramButtonEnabled(false);

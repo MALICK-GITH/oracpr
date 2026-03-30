@@ -69,6 +69,33 @@ h1 {
   color: var(--muted);
 }
 
+.guide-hero-grid {
+  margin-top: 0.9rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.7rem;
+}
+
+.guide-highlight {
+  border: 1px solid rgba(141, 189, 240, 0.2);
+  border-radius: 14px;
+  background: rgba(6, 12, 24, 0.55);
+  padding: 0.75rem;
+}
+
+.guide-highlight strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--ok);
+  font-family: "Chakra Petch", sans-serif;
+}
+
+.guide-highlight p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 .panel {
   border: 1px solid var(--line);
   border-radius: 16px;

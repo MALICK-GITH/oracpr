@@ -16,22 +16,38 @@
     />
     <link rel="stylesheet" href="/pages-luxe.css" />
     <link rel="stylesheet" href="/match.css" />
-    <link rel="stylesheet" href="/match-odds-enhanced.css" />
-    <link rel="stylesheet" href="/unified-system.css" />
+    <link rel="stylesheet" href="/match-features-enhanced.css" />
     <link rel="stylesheet" href="/mobile-optimizations.css" />
     <link rel="stylesheet" href="/global-theme-system.css" />
     <link rel="stylesheet" href="/mobile-ultra-premium.css" />
     <link rel="stylesheet" href="/signature.css" />
     <link rel="stylesheet" href="/chat-widget.css" />
+    <link rel="stylesheet" href="/mobile-hard-fix.css" />
+    <link rel="stylesheet" href="/match-detail-premium.css" />
   </head>
-  <body>
+  <body class="match-detail-body" data-page="match-detail">
     <div class="bg-grid" aria-hidden="true"></div>
-    <main class="page">
-      <a href="/" class="back-link">Retour aux matchs</a>
-      <a href="/mode-emploi.html" class="back-link">Mode d'emploi</a>
-      <a href="/about.html" class="back-link">A propos du createur</a>
-      <a href="/developpeur.html" class="back-link">Page Developpeur</a>
-      <header class="hero">
+    <main class="page match-detail-page">
+      <header class="match-detail-bar" role="banner">
+        <a href="/" class="match-escape-btn" id="matchEscapeBtn" aria-label="Retour a la liste des matchs">
+          <span class="match-escape-icon" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <span class="match-escape-text">
+            <span class="match-escape-kicker">Quitter</span>
+            <span class="match-escape-title">Liste des matchs</span>
+          </span>
+        </a>
+        <nav class="match-detail-aux" aria-label="Navigation secondaire">
+          <a href="/coupon.html" class="match-aux-link">Coupon</a>
+          <a href="/mode-emploi.html" class="match-aux-link">Aide</a>
+          <a href="/about.html" class="match-aux-link">A propos</a>
+          <a href="/developpeur.html" class="match-aux-link">Dev</a>
+        </nav>
+      </header>
+      <section class="hero" aria-labelledby="title">
         <p class="tag">Predictions Unifiees</p>
         <h1 id="title">Chargement...</h1>
         <p id="sub">Analyse complete en cours</p>
@@ -55,7 +71,7 @@
           <button class="pdf-match-btn" id="downloadMatchPdfBtn" type="button" disabled>PDF Match</button>
           <button class="pdf-match-btn" id="exportAllMatchBtn" type="button" disabled>Export 1-Clic</button>
         </div>
-      </header>
+      </section>
 
       <section class="panel hidden" id="driftAlert"></section>
       <section class="panel" id="master"></section>
@@ -77,12 +93,23 @@
           </div>
         </div>
       </section>
+      <section class="panel insight-panel">
+        <h2>Brief Intelligent</h2>
+        <div class="insight-grid" id="insightGrid">
+          <article class="insight-card">
+            <strong>Analyse</strong>
+            <p>Chargement du resume intelligent...</p>
+          </article>
+        </div>
+      </section>
       <section class="panel" id="bots"></section>
       <section class="panel" id="top3"></section>
       <section class="panel" id="markets"></section>
       <footer class="site-signature">Signe par <strong>SOLITAIRE HACK</strong></footer>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/mobile-viewport-fix.js"></script>
+    <script src="/solitaire-ai-client.js"></script>
     <script src="/match.js" defer></script>
     <script src="/match-interactive-charts.js" defer></script>
     <script src="/match-ai-coach.js" defer></script>
