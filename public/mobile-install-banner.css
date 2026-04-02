@@ -1,7 +1,7 @@
 /* Mobile Install Banner Styles */
 .install-banner {
   position: fixed;
-  bottom: 0;
+  bottom: calc(94px + env(safe-area-inset-bottom, 0px));
   left: 0;
   right: 0;
   background: linear-gradient(135deg, rgba(15, 25, 48, 0.98), rgba(8, 14, 26, 0.99));

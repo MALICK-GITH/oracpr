@@ -124,6 +124,12 @@
   function initQuickBar() {
     const bar = document.getElementById("quickMobileBar");
     if (!bar) return;
+
+    if (document.querySelector(".global-bottom-nav")) {
+      bar.remove();
+      return;
+    }
+
     document.body.classList.add("has-quick-mobile-bar");
 
     safeBind("quickRefreshBtn", "click", () => {

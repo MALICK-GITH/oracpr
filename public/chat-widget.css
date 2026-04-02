@@ -1,7 +1,7 @@
 .chat-fab {
   position: fixed;
   right: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(104px + env(safe-area-inset-bottom));
   width: 66px;
   height: 66px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -20,7 +20,7 @@
 .chat-panel {
   position: fixed;
   right: 16px;
-  bottom: calc(92px + env(safe-area-inset-bottom));
+  bottom: calc(180px + env(safe-area-inset-bottom));
   width: min(360px, calc(100vw - 22px));
   height: min(520px, calc(100dvh - 130px));
   border: 1px solid rgba(114, 177, 255, 0.35);
@@ -157,13 +157,13 @@
 @media (max-width: 560px) {
   .chat-panel {
     right: 6px;
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    bottom: calc(170px + env(safe-area-inset-bottom));
     width: calc(100vw - 12px);
     height: min(70dvh, 560px);
   }
   .chat-fab {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(118px + env(safe-area-inset-bottom));
   }
 }
 

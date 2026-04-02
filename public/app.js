@@ -8,6 +8,8 @@ const oddAlertLastShown = new Map();
 const LOW_DATA_MODE_KEY = "fc25_low_data_mode_v1";
 const WATCHLIST_KEY = "fc25_watchlist_v1";
 const WATCHLIST_SNAPSHOT_KEY = "fc25_watchlist_snapshot_v1";
+const TEAM_LOGO_CACHE_KEY = "fc25_team_logo_cache_v1";
+const TEAM_LOGO_API_URL = "https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=";
 const FRONTEND_VERSION = "2026.03.30-r3";
 let lastFetchedAt = null;
 const WELCOME_MODAL_KEY = "fc25_welcome_modal_v1";
@@ -15,6 +17,28 @@ const DENICHEUR_HISTORY_KEY = "fc25_denicheur_history_v1";
 const DENICHEUR_FULL_OPTION_KEY = "fc25_denicheur_full_option_v1";
 let denicheurPreviousFocus = null;
 let denicheurBodyScrollY = 0;
+const teamLogoMemoryCache = new Map();
+let lastLoadRequestId = 0;
+
+const TEAM_NAME_ALIASES = {
+  "barcelone": "Barcelona",
+  "manchester city": "Manchester City",
+  "manchester united": "Manchester United",
+  "bayern munich": "Bayern Munich",
+  "bayern munchen": "Bayern Munich",
+  "paris sg": "Paris Saint-Germain",
+  "psg": "Paris Saint-Germain",
+  "inter": "Inter",
+  "milano": "Inter",
+  "milan": "AC Milan",
+  "naples": "Napoli",
+  "atletico madrid": "Atletico Madrid",
+  "real madrid cf": "Real Madrid",
+  "west ham united": "West Ham United",
+  "brighton et hove albion": "Brighton",
+  "wolverhampton wanderers": "Wolverhampton Wanderers",
+  "as monaco": "Monaco",
+};
 
 function siteLog(level, message, meta) {
   if (!window.SiteLogger || typeof window.SiteLogger[level] !== "function") return;
@@ -92,6 +116,147 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function normalizeTeamLookupKey(name) {
+  return String(name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getCanonicalTeamName(name) {
+  const key = normalizeTeamLookupKey(name);
+  return TEAM_NAME_ALIASES[key] || String(name || "").trim();
+}
+
+function readTeamLogoCache() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TEAM_LOGO_CACHE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_error) {
+    return {};
+  }
+}
+
+function saveTeamLogoCache(cache) {
+  localStorage.setItem(TEAM_LOGO_CACHE_KEY, JSON.stringify(cache || {}));
+}
+
+function getCachedTeamLogo(name) {
+  const key = normalizeTeamLookupKey(name);
+  if (!key) return null;
+  if (teamLogoMemoryCache.has(key)) return teamLogoMemoryCache.get(key);
+  const disk = readTeamLogoCache();
+  const value = disk[key] || null;
+  if (value) teamLogoMemoryCache.set(key, value);
+  return value;
+}
+
+function setCachedTeamLogo(name, url) {
+  const key = normalizeTeamLookupKey(name);
+  if (!key || !url) return;
+  teamLogoMemoryCache.set(key, url);
+  const disk = readTeamLogoCache();
+  disk[key] = url;
+  saveTeamLogoCache(disk);
+}
+
+function buildKnownTeamLogoMap(matches = []) {
+  const map = new Map();
+  (matches || []).forEach((match) => {
+    const homeName = String(match?.teamHome || "").trim();
+    const awayName = String(match?.teamAway || "").trim();
+    const homeLogo = String(match?.teamHomeLogo || "").trim();
+    const awayLogo = String(match?.teamAwayLogo || "").trim();
+    if (homeName && homeLogo) map.set(normalizeTeamLookupKey(homeName), homeLogo);
+    if (awayName && awayLogo) map.set(normalizeTeamLookupKey(awayName), awayLogo);
+  });
+  return map;
+}
+
+function getKnownTeamLogo(name, knownLogos = new Map()) {
+  const key = normalizeTeamLookupKey(name);
+  if (!key) return null;
+  return knownLogos.get(key) || getCachedTeamLogo(name) || null;
+}
+
+function sanitizeMatchLogos(match, knownLogos = new Map()) {
+  return {
+    ...match,
+    teamHomeLogo: getKnownTeamLogo(match?.teamHome, knownLogos),
+    teamAwayLogo: getKnownTeamLogo(match?.teamAway, knownLogos),
+  };
+}
+
+async function fetchDirectTeamLogo(teamName) {
+  const cached = getCachedTeamLogo(teamName);
+  if (cached) return cached;
+
+  const canonicalName = getCanonicalTeamName(teamName);
+  if (!canonicalName) return null;
+
+  try {
+    const response = await fetch(`${TEAM_LOGO_API_URL}${encodeURIComponent(canonicalName)}`, {
+      cache: "force-cache",
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const teams = Array.isArray(data?.teams) ? data.teams : [];
+    if (!teams.length) return null;
+
+    const exactKey = normalizeTeamLookupKey(canonicalName);
+    const exact = teams.find((team) => normalizeTeamLookupKey(team?.strTeam) === exactKey);
+    const picked = exact || teams[0];
+    const badge = String(picked?.strBadge || picked?.strTeamBadge || "").trim();
+    if (!badge) return null;
+
+    setCachedTeamLogo(teamName, badge);
+    setCachedTeamLogo(canonicalName, badge);
+    return badge;
+  } catch (_error) {
+    return null;
+  }
+}
+
+async function hydrateDirectTeamLogos(matches = []) {
+  const uniqueTeams = Array.from(
+    new Set(
+      (matches || [])
+        .flatMap((match) => [match?.teamHome, match?.teamAway])
+        .map((name) => String(name || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  await Promise.all(
+    uniqueTeams.map(async (teamName) => {
+      const currentLogo = getCachedTeamLogo(teamName);
+      if (currentLogo) {
+        matches.forEach((match) => {
+          if (String(match?.teamHome || "").trim() === teamName && !match.teamHomeLogo) {
+            match.teamHomeLogo = currentLogo;
+          }
+          if (String(match?.teamAway || "").trim() === teamName && !match.teamAwayLogo) {
+            match.teamAwayLogo = currentLogo;
+          }
+        });
+        return;
+      }
+      const logoUrl = await fetchDirectTeamLogo(teamName);
+      if (!logoUrl) return;
+      matches.forEach((match) => {
+        if (String(match?.teamHome || "").trim() === teamName) {
+          match.teamHomeLogo = logoUrl;
+        }
+        if (String(match?.teamAway || "").trim() === teamName) {
+          match.teamAwayLogo = logoUrl;
+        }
+      });
+    })
+  );
 }
 
 function createTeamLogo(name, logoUrl, fallbackUrl, isAway = false) {
@@ -1421,6 +1586,7 @@ function activateAmbientOddsPulse(root) {
 }
 
 async function loadMatches() {
+  const requestId = ++lastLoadRequestId;
   const subTitle = document.getElementById("subTitle");
   const statsWrap = document.getElementById("stats");
   const emptyState = document.getElementById("emptyState");
@@ -1435,7 +1601,10 @@ async function loadMatches() {
     const data = await res.json();
     if (!res.ok || !data.success) throw new Error(data.error || data.message || "Reponse API invalide");
 
-    const rawMatches = Array.isArray(data.matches) ? data.matches : [];
+    if (requestId !== lastLoadRequestId) return;
+
+    const knownLogos = buildKnownTeamLogoMap(allMatches);
+    const rawMatches = Array.isArray(data.matches) ? data.matches.map((match) => sanitizeMatchLogos(match, knownLogos)) : [];
     lastFetchedAt = data.fetchedAt || null;
     allMatches = enrichWithTrend(rawMatches);
     updateWatchlistAlerts(allMatches);
@@ -1455,6 +1624,12 @@ async function loadMatches() {
     renderMatchFinder(allMatches);
     renderMatches();
     updatedAt.textContent = `Derniere mise a jour: ${new Date(data.fetchedAt).toLocaleString("fr-FR")}`;
+    hydrateDirectTeamLogos(allMatches).then(() => {
+      if (requestId !== lastLoadRequestId) return;
+      renderWatchlistPanel(allMatches);
+      renderMatchFinder(allMatches);
+      renderMatches();
+    });
     siteLog("log", "home_matches_loaded", { count: allMatches.length, mode: data.filterMode || "unknown" });
   } catch (error) {
     subTitle.textContent = "Erreur de chargement";

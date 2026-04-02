@@ -294,6 +294,9 @@ class MobileEnhancer {
   }
 
   showInstallPrompt(deferredPrompt) {
+    if (document.querySelector('.global-bottom-nav')) return;
+    if (document.querySelector('.install-banner')) return;
+
     // Create install banner
     const banner = document.createElement('div');
     banner.className = 'install-banner';

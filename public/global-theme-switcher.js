@@ -1,3 +1,4 @@
+/* global module */
 // Global Theme Switcher - Works on ALL pages
 class GlobalThemeSwitcher {
   constructor() {
@@ -435,6 +436,6 @@ if (typeof window !== 'undefined') {
 }
 
 // Export for module usage
-if (typeof module !== 'undefined' && module.exports) {
+if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
   module.exports = GlobalThemeSwitcher;
 }

@@ -31,6 +31,7 @@
     <link rel="stylesheet" href="/chat-widget.css" />
     <link rel="stylesheet" href="/mobile-hard-fix.css" />
     <link rel="stylesheet" href="/power-ui.css" />
+    <link rel="stylesheet" href="/revolution-theme.css" />
   </head>
   <body>
     <div class="bg-grid" aria-hidden="true"></div>
@@ -38,6 +39,28 @@
       <p class="tag">Live Feed 1xBet</p>
       <h1>SOLITFIFPRO225</h1>
       <p id="subTitle">Hub FIFA Virtuel - matchs live, details et exports.</p>
+      <div class="hero-metric-strip" aria-hidden="true">
+        <article class="hero-metric-card">
+          <span>Direction</span>
+          <strong>Live Command</strong>
+          <em>Accueil pilote, denicheur, alertes et lecture rapide.</em>
+        </article>
+        <article class="hero-metric-card">
+          <span>Experience</span>
+          <strong>Touch Native</strong>
+          <em>Rendu fluide et dense pour iPhone, Android et desktop.</em>
+        </article>
+        <article class="hero-metric-card">
+          <span>Puissance</span>
+          <strong>Neural Visuals</strong>
+          <em>Logos, scores, heatmap et filtres dans une meme ligne visuelle.</em>
+        </article>
+        <article class="hero-metric-card">
+          <span>Objectif</span>
+          <strong>Fast Decision</strong>
+          <em>Voir vite, ouvrir vite, valider vite sans perdre en lisibilite.</em>
+        </article>
+      </div>
       <div class="denicheur-hero-row">
         <div class="denicheur-hero-actions">
           <button type="button" class="denicheur-cta" id="denicheurLaunchBtn">
@@ -69,6 +92,18 @@
         <a class="coupon-page-link" href="/mode-emploi.html">Mode d'emploi</a>
         <a class="coupon-page-link" href="/about.html">A propos du createur</a>
         <a class="coupon-page-link" href="/developpeur.html">Page Developpeur</a>
+      </div>
+      <div class="mode-spotlight" aria-hidden="true">
+        <article class="mode-spotlight-card">
+          <span>Lecture d'ensemble</span>
+          <strong>Un accueil qui respire comme un tableau de bord premium</strong>
+          <p>Les blocs principaux remontent maintenant comme une console de pilotage au lieu d'une simple liste.</p>
+        </article>
+        <article class="mode-spotlight-card">
+          <span>Mobile iOS / Android</span>
+          <strong>Touch zones plus nettes et cartes plus stables</strong>
+          <p>La structure reste claire meme sur petit ecran, sans perdre le caractere visuel du site.</p>
+        </article>
       </div>
     </header>
 
@@ -103,13 +138,6 @@
         Aucun match FIFA penalty detecte pour le moment.
       </p>
     </main>
-
-    <nav class="quick-mobile-bar" id="quickMobileBar" aria-label="Actions rapides">
-      <button id="quickRefreshBtn" type="button">Refresh</button>
-      <button id="quickDenicheurBtn" type="button">Denicheur</button>
-      <button id="quickCouponBtn" type="button" class="quick-secondary">Coupon</button>
-      <button id="quickTopBtn" type="button" class="quick-danger">Top</button>
-    </nav>
 
     <div class="welcome-modal denicheur-modal hidden" id="denicheurModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="denicheurModalTitle">
       <div class="denicheur-card welcome-card">
@@ -164,6 +192,7 @@
     <script src="/solitaire-ai-client.js"></script>
     <script src="/global-theme-switcher.js"></script>
     <script src="/mobile-ultra-interactions.js"></script>
+    <script src="/global-ui-shell.js" defer></script>
     <script src="/app.js" defer></script>
     <script src="/chat-widget.js" defer></script>
     <script src="/site-reliability.js" defer></script>

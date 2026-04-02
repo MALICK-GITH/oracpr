@@ -854,6 +854,7 @@ function setResultHtml(html) {
 
 function updateSendButtonState() {
   const btn = document.getElementById("sendTelegramBtn");
+  const btnQuickImageTelegram = document.getElementById("sendTelegramImageBtnQuick");
   const miniBtn = document.getElementById("sendTelegramMiniBtn");
   const packBtn = document.getElementById("sendPackBtn");
   const ladderTgBtn = document.getElementById("sendLadderTelegramBtn");
@@ -865,9 +866,13 @@ function updateSendButtonState() {
   const replaceWeakBtn = document.getElementById("replaceWeakBtn");
   const imageBtn = document.getElementById("downloadImageBtn");
   const premiumImageBtn = document.getElementById("downloadPremiumImageBtn");
+  const premiumImageBtnQuick = document.getElementById("downloadPremiumImageBtnQuick");
   const storyBtn = document.getElementById("downloadStoryBtn");
+  const storyBtnQuick = document.getElementById("downloadStoryBtnQuick");
   const duoBtn = document.getElementById("downloadImageDuoBtn");
+  const duoBtnQuick = document.getElementById("downloadImageDuoBtnQuick");
   const copyTextBtn = document.getElementById("copyCouponTextBtn");
+  const copyTextBtnQuick = document.getElementById("copyCouponTextBtnQuick");
   const pdfQuickBtn = document.getElementById("downloadPdfQuickBtn");
   const pdfBtn = document.getElementById("downloadPdfBtn");
   const pdfDetailedBtn = document.getElementById("downloadPdfDetailedBtn");
@@ -881,6 +886,7 @@ function updateSendButtonState() {
   if (packBtn) packBtn.disabled = !enabled;
   if (ladderTgBtn) ladderTgBtn.disabled = !(lastLadderData && Array.isArray(lastLadderData.items) && lastLadderData.items.length > 0);
   if (imageTelegramBtn) imageTelegramBtn.disabled = !enabled;
+  if (btnQuickImageTelegram) btnQuickImageTelegram.disabled = !enabled;
   if (printBtn) printBtn.disabled = !enabled;
   if (watchBtn) watchBtn.disabled = !enabled;
   if (stickyBtn) stickyBtn.disabled = !enabled;
@@ -888,9 +894,13 @@ function updateSendButtonState() {
   if (replaceWeakBtn) replaceWeakBtn.disabled = !enabled || frozen;
   if (imageBtn) imageBtn.disabled = !enabled;
   if (premiumImageBtn) premiumImageBtn.disabled = !enabled;
+  if (premiumImageBtnQuick) premiumImageBtnQuick.disabled = !enabled;
   if (storyBtn) storyBtn.disabled = !enabled;
+  if (storyBtnQuick) storyBtnQuick.disabled = !enabled;
   if (duoBtn) duoBtn.disabled = !enabled;
+  if (duoBtnQuick) duoBtnQuick.disabled = !enabled;
   if (copyTextBtn) copyTextBtn.disabled = !enabled;
+  if (copyTextBtnQuick) copyTextBtnQuick.disabled = !enabled;
   if (pdfQuickBtn) pdfQuickBtn.disabled = !enabled;
   if (pdfBtn) pdfBtn.disabled = !enabled;
   if (pdfDetailedBtn) pdfDetailedBtn.disabled = !enabled;
@@ -3478,6 +3488,12 @@ if (downloadStoryBtn) {
 const downloadImageDuoBtn = document.getElementById("downloadImageDuoBtn");
 const copyCouponTextBtn = document.getElementById("copyCouponTextBtn");
 const resetCouponWorkspaceBtn = document.getElementById("resetCouponWorkspaceBtn");
+const downloadPremiumImageBtnQuick = document.getElementById("downloadPremiumImageBtnQuick");
+const downloadStoryBtnQuick = document.getElementById("downloadStoryBtnQuick");
+const sendTelegramImageBtnQuick = document.getElementById("sendTelegramImageBtnQuick");
+const downloadImageDuoBtnQuick = document.getElementById("downloadImageDuoBtnQuick");
+const copyCouponTextBtnQuick = document.getElementById("copyCouponTextBtnQuick");
+const resetCouponWorkspaceBtnQuick = document.getElementById("resetCouponWorkspaceBtnQuick");
 if (downloadImageDuoBtn) {
   downloadImageDuoBtn.addEventListener("click", () => downloadCouponImageDuo("default"));
 }
@@ -3486,6 +3502,24 @@ if (copyCouponTextBtn) {
 }
 if (resetCouponWorkspaceBtn) {
   resetCouponWorkspaceBtn.addEventListener("click", () => resetCouponWorkspace());
+}
+if (downloadPremiumImageBtnQuick) {
+  downloadPremiumImageBtnQuick.addEventListener("click", () => downloadCouponImage("premium"));
+}
+if (downloadStoryBtnQuick) {
+  downloadStoryBtnQuick.addEventListener("click", () => downloadCouponImage("story"));
+}
+if (sendTelegramImageBtnQuick) {
+  sendTelegramImageBtnQuick.addEventListener("click", () => sendCouponToTelegram(true));
+}
+if (downloadImageDuoBtnQuick) {
+  downloadImageDuoBtnQuick.addEventListener("click", () => downloadCouponImageDuo("default"));
+}
+if (copyCouponTextBtnQuick) {
+  copyCouponTextBtnQuick.addEventListener("click", () => copyCouponToClipboard());
+}
+if (resetCouponWorkspaceBtnQuick) {
+  resetCouponWorkspaceBtnQuick.addEventListener("click", () => resetCouponWorkspace());
 }
 if (saveTicketABtn) {
   saveTicketABtn.addEventListener("click", () => {

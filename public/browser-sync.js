@@ -118,6 +118,9 @@
 
   function addInstallButton() {
     if (document.getElementById(INSTALL_BTN_ID)) return;
+    const isMobile = window.matchMedia("(max-width: 760px)").matches;
+    if (isMobile || document.querySelector(".global-bottom-nav")) return;
+
     const btn = document.createElement("button");
     btn.id = INSTALL_BTN_ID;
     btn.type = "button";

@@ -1,3 +1,4 @@
+/* global Chart */
 const AUTO_REFRESH_SECONDS = 60;
 const DRIFT_THRESHOLD_PERCENT = 8;
 const PAGE_REFRESH_STORAGE_KEY = "fc25_page_refresh_minutes_v1";
