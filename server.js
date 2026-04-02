@@ -1606,7 +1606,7 @@ app.get("/api/coupon", async (req, res) => {
     const risk = req.query.risk ? String(req.query.risk) : "balanced";
     const coupon = await getCouponSelection(size, league, risk);
     try {
-      saveCouponGeneration({
+      await saveCouponGeneration({
         size,
         league,
         risk,
@@ -1630,7 +1630,7 @@ app.post("/api/coupon/validate", async (req, res) => {
     const driftThresholdPercent = Number(req.body?.driftThresholdPercent) || 6;
     const report = await validateCouponTicket(req.body || {}, { driftThresholdPercent });
     try {
-      saveCouponValidation({
+      await saveCouponValidation({
         driftThreshold: driftThresholdPercent,
         status: "ok",
         request: req.body || {},
@@ -1640,7 +1640,7 @@ app.post("/api/coupon/validate", async (req, res) => {
     res.json({ success: true, source: API_URL, ...report });
   } catch (error) {
     try {
-      saveCouponValidation({
+      await saveCouponValidation({
         driftThreshold: Number(req.body?.driftThresholdPercent) || 6,
         status: "error",
         request: req.body || {},
@@ -1656,9 +1656,9 @@ app.post("/api/coupon/validate", async (req, res) => {
   }
 });
 
-app.get("/api/db/status", (_req, res) => {
+app.get("/api/db/status", async (_req, res) => {
   try {
-    return res.json({ success: true, db: getDbStatus() });
+    return res.json({ success: true, db: await getDbStatus() });
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -1668,10 +1668,10 @@ app.get("/api/db/status", (_req, res) => {
   }
 });
 
-app.get("/api/coupon/history", (req, res) => {
+app.get("/api/coupon/history", async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
-    const items = getCouponHistory(limit);
+    const items = await getCouponHistory(limit);
     return res.json({
       success: true,
       total: items.length,
@@ -1686,10 +1686,10 @@ app.get("/api/coupon/history", (req, res) => {
   }
 });
 
-app.get("/api/telegram/history", (req, res) => {
+app.get("/api/telegram/history", async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
-    const items = getTelegramHistory(limit);
+    const items = await getTelegramHistory(limit);
     return res.json({
       success: true,
       total: items.length,
@@ -1704,10 +1704,10 @@ app.get("/api/telegram/history", (req, res) => {
   }
 });
 
-app.get("/api/audit/history", (req, res) => {
+app.get("/api/audit/history", async (req, res) => {
   try {
     const limit = Number(req.query.limit) || 20;
-    const items = getAuditHistory(limit);
+    const items = await getAuditHistory(limit);
     return res.json({
       success: true,
       total: items.length,
@@ -1722,7 +1722,7 @@ app.get("/api/audit/history", (req, res) => {
   }
 });
 
-app.post("/api/coupon/audit", (req, res) => {
+app.post("/api/coupon/audit", async (req, res) => {
   try {
     const now = new Date();
     const auditId =
@@ -1732,7 +1732,7 @@ app.post("/api/coupon/audit", (req, res) => {
       ).padStart(2, "0")}${String(now.getUTCMinutes()).padStart(2, "0")}${String(now.getUTCSeconds()).padStart(2, "0")}-${Math.floor(
         Math.random() * 9000 + 1000
       )}`;
-    const saved = saveAuditReport({
+    const saved = await saveAuditReport({
       auditId,
       action: req.body?.action || "coupon_export_pro",
       payload: req.body?.payload || {},
@@ -2050,7 +2050,7 @@ async function sendTelegramCouponHandler(req, res) {
         "Coupon image - SOLITFIFPRO225 | Signe: SOLITAIRE HACK"
       );
       try {
-        saveTelegramLog({
+        await saveTelegramLog({
           kind: "coupon_image",
           status: "sent",
           message: "Coupon image envoye sur Telegram",
@@ -2077,7 +2077,7 @@ async function sendTelegramCouponHandler(req, res) {
     const telegramData = await telegramRes.json();
     if (!telegramRes.ok || !telegramData?.ok) {
       try {
-        saveTelegramLog({
+        await saveTelegramLog({
           kind: "coupon_text",
           status: "error",
           message: "Echec envoi Telegram",
@@ -2094,7 +2094,7 @@ async function sendTelegramCouponHandler(req, res) {
     }
 
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "coupon_text",
         status: "sent",
         message: "Coupon texte envoye sur Telegram",
@@ -2109,7 +2109,7 @@ async function sendTelegramCouponHandler(req, res) {
     });
   } catch (error) {
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "coupon_text",
         status: "error",
         message: "Impossible d'envoyer le coupon sur Telegram",
@@ -2198,7 +2198,7 @@ async function sendTelegramCouponPackHandler(req, res) {
     );
 
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "coupon_pack",
         status: "sent",
         message: "Pack Telegram envoye (texte + image + PDF)",
@@ -2222,7 +2222,7 @@ async function sendTelegramCouponPackHandler(req, res) {
     });
   } catch (error) {
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "coupon_pack",
         status: "error",
         message: "Impossible d'envoyer le pack Telegram",
@@ -2305,7 +2305,7 @@ async function sendTelegramLadderHandler(req, res) {
     const data = await telegramRes.json();
     if (!telegramRes.ok || !data?.ok) {
       try {
-        saveTelegramLog({
+        await saveTelegramLog({
           kind: "ladder_text",
           status: "error",
           message: "Echec envoi Ladder Telegram",
@@ -2321,7 +2321,7 @@ async function sendTelegramLadderHandler(req, res) {
       });
     }
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "ladder_text",
         status: "sent",
         message: "Ladder envoye sur Telegram",
@@ -2336,7 +2336,7 @@ async function sendTelegramLadderHandler(req, res) {
     });
   } catch (error) {
     try {
-      saveTelegramLog({
+      await saveTelegramLog({
         kind: "ladder_text",
         status: "error",
         message: "Impossible d'envoyer le Ladder sur Telegram",
