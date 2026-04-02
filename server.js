@@ -15,6 +15,9 @@ const {
   getDbStatus,
 } = require("./services/db");
 
+// Import PostgreSQL database service
+const dbService = require("./services/database");
+
 const app = express();
 const DEFAULT_PORT = Number(process.env.PORT) || 3029;
 const MAX_PORT_TRIES = 20;
@@ -31,12 +34,23 @@ const CHAT_PROVIDER_TIMEOUT_MS = 7000;
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.json());
 
-app.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
-    uptimeSec: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
-    startedAt: new Date(SERVER_STARTED_AT).toISOString(),
-  });
+app.get("/health", async (_req, res) => {
+  try {
+    const dbHealth = await dbService.healthCheck();
+    res.json({
+      ok: true,
+      uptimeSec: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
+      startedAt: new Date(SERVER_STARTED_AT).toISOString(),
+      database: dbHealth,
+    });
+  } catch (error) {
+    res.json({
+      ok: true,
+      uptimeSec: Math.floor((Date.now() - SERVER_STARTED_AT) / 1000),
+      startedAt: new Date(SERVER_STARTED_AT).toISOString(),
+      database: { status: "error", error: error.message },
+    });
+  }
 });
 
 app.use((req, res, next) => {
